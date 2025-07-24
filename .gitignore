@@ -9,9 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
-
 # .env
 .env
 
 # dbt
 **/profiles.yml
+logs/
