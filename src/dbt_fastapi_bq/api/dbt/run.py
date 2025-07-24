@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-import subprocess
+from fastapi import APIRouter, Depends
 import os
 
 from dbt_fastapi_bq.models.dbt_models import DbtRunRequest, DbtRunResult
 from dbt_fastapi_bq.utils.payload_validators import validate_dbt_run_request
+from dbt_fastapi_bq.utils.dbt_executor import execute_dbt_command
+from dbt_fastapi_bq.params import DBT_PROJECT_PATH
 
 router = APIRouter()
 
@@ -12,8 +13,8 @@ router = APIRouter()
 async def run_dbt(
     payload: DbtRunRequest = Depends(validate_dbt_run_request),
 ) -> dict[str, str]:
-    command: list[str] = ["dbt", "run"]
-
+    command: list[str] = ["dbt", "run", "--project-dir", DBT_PROJECT_PATH]
+    print(DBT_PROJECT_PATH)
     if payload.model:
         select_arg = payload.model
         if payload.upstream:
@@ -24,29 +25,11 @@ async def run_dbt(
 
     command += ["--target", payload.target]
 
-    try:
-        result = subprocess.run(command, capture_output=True, text=True, check=True)
-        return {"status": "success", "output": result.stdout}
-    except subprocess.CalledProcessError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"dbt run failed: {e}",
-        )
+    stdout: str = execute_dbt_command(
+        command, target=payload.target, model=payload.model
+    )
 
-    # try:
-    #     output = run_dbt_command(
-    #         [
-    #             "dbt",
-    #             "run",
-    #             "--project-dir",
-    #             "dbt_project",
-    #             "--profiles-dir",
-    #             "dbt_project",
-    #         ]
-    #     )
-    #     return DbtRunResult(success=True, output=output)
-    # except Exception as e:
-    #     raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "success", "output": stdout}
 
 
 @router.get("/runtest")
