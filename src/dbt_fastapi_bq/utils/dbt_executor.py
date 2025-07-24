@@ -1,6 +1,12 @@
 import subprocess
 import re
-from fastapi import HTTPException, status
+from fastapi import status
+from dbt_fastapi_bq.models.dbt_models import (
+    DbtModelSelectionError,
+    DbtTargetValidationError,
+    BaseDbtError,
+)
+from dbt_fastapi_bq.exceptions import DbtRunException
 
 
 def execute_dbt_command(
@@ -17,13 +23,13 @@ def execute_dbt_command(
 
         # Handle empty model match (even though exit code is 0)
         if "does not match any enabled nodes" in stdout or "Nothing to do" in stdout:
-            raise HTTPException(
+            raise DbtRunException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "error": "Invalid dbt model selection",
-                    "provided_model": model,
-                    "message": stdout.strip(),
-                },
+                detail=DbtModelSelectionError(
+                    error="Invalid dbt model selection",
+                    provided_model=model,
+                    message=stdout.strip(),
+                ),
             )
 
         return stdout
@@ -33,17 +39,17 @@ def execute_dbt_command(
 
         if "does not have a target named" in error_str:
             valid_targets: list[str] = re.findall(r"- (\w+)", error_str)
-            raise HTTPException(
+            raise DbtRunException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "error": "Invalid dbt target",
-                    "provided_target": target,
-                    "valid_targets": valid_targets,
-                    "message": error_str.strip(),
-                },
+                detail=DbtTargetValidationError(
+                    error="Invalid dbt target",
+                    provided_target=target,
+                    valid_targets=valid_targets,
+                    message=error_str.strip(),
+                ),
             )
 
-        raise HTTPException(
+        raise DbtRunException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error": "dbt command failed", "message": error_str.strip()},
+            detail=BaseDbtError(error="dbt command failed", message=error_str.strip()),
         )

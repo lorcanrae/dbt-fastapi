@@ -3,6 +3,7 @@ from pydantic import BaseModel, StringConstraints, Field
 from typing import Optional, Annotated
 
 
+# Annotated type
 ValidatedModelStr = Annotated[
     str, StringConstraints(min_length=1, pattern=r"^[a-zA-Z0-9_]+$")
 ]
@@ -18,3 +19,17 @@ class DbtRunRequest(BaseModel):
 class DbtRunResult(BaseModel):
     status: str
     output: str
+
+
+class BaseDbtError(BaseModel):
+    error: str
+    message: str
+
+
+class DbtModelSelectionError(BaseDbtError):
+    provided_model: str
+
+
+class DbtTargetValidationError(BaseDbtError):
+    provided_target: str
+    valid_targets: list[str]

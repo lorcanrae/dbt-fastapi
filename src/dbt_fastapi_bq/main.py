@@ -1,5 +1,9 @@
-from fastapi import FastAPI
-from dbt_fastapi_bq.api import dbt
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
+
+from dbt_fastapi_bq.routes import dbt
+from dbt_fastapi_bq.exceptions import DbtRunException
 
 app = FastAPI(
     title="dbt FastAPI Wrapper",
@@ -7,9 +11,19 @@ app = FastAPI(
     description="Exposes dbt CLI over HTTP",
 )
 
-app.include_router(dbt.router, prefix="/dbt", tags=["dbt"])
-
 
 @app.get("/")
 def root():
     return {"status": "running"}
+
+
+app.include_router(dbt.router, prefix="/dbt", tags=["dbt"])
+
+
+@app.exception_handler(DbtRunException)
+async def dbt_run_exception_handler(request: Request, exc: DbtRunException):
+    validated = exc.detail.model_dump()
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=validated,
+    )
