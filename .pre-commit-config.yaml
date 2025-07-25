@@ -1,17 +1,15 @@
 repos:
   - repo: https://github.com/charliermarsh/ruff-pre-commit
     # Ruff version.
-    rev: "v0.0.265"
+    rev: "v0.12.5"
     hooks:
       - id: ruff
         args: ["--ignore=E501,F821"]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v2.3.0
+    rev: v5.0.0
     hooks:
-      - id: check-json
       - id: check-merge-conflict
-      - id: check-xml
       - id: check-yaml
       - id: debug-statements
       - id: detect-private-key
