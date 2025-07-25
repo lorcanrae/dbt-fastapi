@@ -11,6 +11,7 @@ from dbt_fastapi_bq.utils.payload_validators import validate_dbt_run_request
 from dbt_fastapi_bq.utils.dbt_executor import execute_dbt_command
 from dbt_fastapi_bq.params import DBT_PROJECT_PATH
 
+
 router = APIRouter()
 
 

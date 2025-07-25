@@ -53,3 +53,12 @@ def execute_dbt_command(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=BaseDbtError(error="dbt command failed", message=error_str.strip()),
         )
+
+    except Exception as e:
+        raise DbtRunException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=BaseDbtError(
+                error="Unexpected error during dbt exection",
+                message=str(e).strip(),
+            ),
+        )
