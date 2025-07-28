@@ -16,7 +16,7 @@ from dbt_fastapi_bq.utils import (
 
 router = APIRouter()
 
-COMMAND = "run"
+COMMAND = "test"
 
 
 @router.post(
