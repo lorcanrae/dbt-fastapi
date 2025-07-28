@@ -15,3 +15,7 @@ wheels/
 # dbt
 **/profiles.yml
 logs/
+
+
+# VS Code
+**/.vscode
