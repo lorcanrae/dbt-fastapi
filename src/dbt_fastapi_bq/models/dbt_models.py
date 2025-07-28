@@ -1,4 +1,3 @@
-import os
 from pydantic import BaseModel, StringConstraints, Field
 from typing import Optional, Annotated
 
@@ -9,18 +8,20 @@ ValidatedModelStr = Annotated[
 ]
 
 
-class DbtRunRequest(BaseModel):
-    model: Optional[ValidatedModelStr] = None
+### run/test/build endpoints
+class DbtCommandRequest(BaseModel):
+    target: ValidatedModelStr = Field(..., description="dbt target (e.g. dev, prod)")
+    select_model: Optional[ValidatedModelStr] = None
     upstream: bool = False
     downstream: bool = False
-    target: ValidatedModelStr = Field(default_factory=os.getenv("DBT_TARGET", "dev"))
 
 
-class DbtRunResult(BaseModel):
+class DbtCommandResult(BaseModel):
     status: str
     output: str
 
 
+### Error Responses
 class BaseDbtError(BaseModel):
     error: str
     message: str
