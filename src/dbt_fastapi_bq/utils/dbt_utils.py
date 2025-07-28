@@ -1,12 +1,34 @@
 import subprocess
 import re
 from fastapi import status
+from typing import Literal
+
 from dbt_fastapi_bq.models.dbt_models import (
+    DbtRunRequest,
     DbtModelSelectionError,
     DbtTargetValidationError,
     BaseDbtError,
 )
 from dbt_fastapi_bq.exceptions import DbtRunException
+from dbt_fastapi_bq.params import DBT_PROJECT_PATH
+
+DBTCommand = Literal["run", "test", "build"]
+
+
+def generate_dbt_command(command: str, payload: DbtRunRequest):
+    dbt_cmd: list[str] = ["dbt", command, "--project-dir", DBT_PROJECT_PATH]
+
+    if payload.model:
+        select_arg = payload.model
+        if payload.upstream:
+            select_arg = f"+{select_arg}"
+        if payload.downstream:
+            select_arg = f"{select_arg}+"
+        dbt_cmd += ["--select", select_arg]
+
+    dbt_cmd += ["--target", payload.target]
+
+    return dbt_cmd
 
 
 def execute_dbt_command(
@@ -31,6 +53,10 @@ def execute_dbt_command(
                     message=stdout.strip(),
                 ),
             )
+
+        # TODO
+        # Handle model run error
+        # Handle tests error run
 
         return stdout
 
