@@ -2,26 +2,32 @@ import subprocess
 import re
 from fastapi import status, HTTPException
 
-from dbt_fastapi_bq.models.dbt_models import (
-    DbtCommandRequest,
-    DbtModelSelectionError,
-    DbtTargetValidationError,
-    BaseDbtError,
-)
-from dbt_fastapi_bq.exceptions import DbtCommandException
+from dbt_fastapi_bq.schemas.dbt_command import DbtCommandRequest
 from dbt_fastapi_bq.params import DBT_PROJECT_PATH
 
 
 ### dbt Utils
-def generate_dbt_command(command: str, payload: str) -> list[str]:
+def generate_dbt_command(command: str, payload: DbtCommandRequest) -> list[str]:
     dbt_cmd: list[str] = ["dbt", command, "--project-dir", DBT_PROJECT_PATH]
 
+    def _build_selector_arg(model: str, upstream: bool, downstream: bool) -> str:
+        arg = model
+        if upstream:
+            arg = f"+{arg}"
+        if downstream:
+            arg = f"{arg}+"
+        return arg
+
     if payload.select_model:
-        select_arg = payload.select_model
-        if payload.upstream:
-            select_arg = f"+{select_arg}"
-        if payload.downstream:
-            select_arg = f"{select_arg}+"
+        select_arg = _build_selector_arg(
+            payload.select_model, payload.select_upstream, payload.select_downstream
+        )
+        dbt_cmd += ["--select", select_arg]
+
+    if payload.exclude_model:
+        select_arg = _build_selector_arg(
+            payload.exclude_model, payload.exclude_upstream, payload.exclude_downstream
+        )
         dbt_cmd += ["--select", select_arg]
 
     dbt_cmd += ["--target", payload.target]
@@ -46,22 +52,20 @@ def execute_dbt_command(
 
         if "does not have a target named" in output:
             valid_targets: list[str] = re.findall(r"- (\w+)", output)
-            raise DbtCommandException(
+            raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=DbtTargetValidationError(
-                    error="Invalid dbt target",
-                    provided_target=payload.target,
-                    valid_targets=valid_targets,
-                    message=output,
-                ),
+                detail={
+                    "error": "Invalid dbt target",
+                    "message": output,
+                    "provided_target": payload.target,
+                    "valid_target": valid_targets,
+                },
             )
 
-        raise DbtCommandException(
+        # Generic fallback
+        raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=BaseDbtError(
-                error="dbt command failed",
-                message=output,
-            ),
+            detail={"error": "dbt command failed", "message": output},
         )
 
     # Parse the output because dbt's cli return codes are annoying.
@@ -72,27 +76,20 @@ def execute_dbt_command(
 
 
 def parse_dbt_command_stdout(stdout: str, model, target):
+    # Start with easy to catch errors
     if "does not match any enabled nodes" in stdout or "Nothing to do" in stdout:
-        raise DbtCommandException(
+        raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=DbtModelSelectionError(
-                error="Invalid dbt model selection",
-                provided_model=model,
-                message=stdout,
-            ),
+            detail={
+                "error": "Invalid dbt model selection",
+                "provided_model": model,
+                "message": stdout,
+            },
         )
+    # then parse the output into useable metadata
 
 
 ### API Utils
-def validate_dbt_command_request(payload: DbtCommandRequest) -> DbtCommandRequest:
-    if (payload.upstream or payload.downstream) and not payload.select_model:
-        raise HTTPException(
-            status_code=400,
-            detail="A valid 'model' parameter must be provided if 'select_prefix' or 'select_suffix' is True.",
-        )
-    return payload
-
-
 def strip_ansi_codes(text: str) -> str:
     ansi_escape: re.Pattern[str] = re.compile(r"\x1B[@-_][0-?]*[ -/]*[@-~]")
     return ansi_escape.sub("", text)
