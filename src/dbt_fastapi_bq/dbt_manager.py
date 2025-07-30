@@ -17,6 +17,7 @@ class DbtManager:
         select_args: str = None,
         exclude_args: str = None,
         selector_args: str = None,
+        resource_type: str = None,
     ):
         self.verb: str = verb
         self.target: str = target
@@ -27,7 +28,7 @@ class DbtManager:
         self.profiles_yaml_dir, self.dbt_project_yaml_dir = (
             self._get_dbt_conf_files_paths()
         )
-        self.dbt_cmd: list[str] = self._generate_dbt_command()
+        self.dbt_cli_command: list[str] = self._generate_dbt_command()
 
     def _generate_dbt_command(self):
         dbt_cmd: list[str] = [
@@ -51,14 +52,16 @@ class DbtManager:
         return dbt_cmd
 
     def execute_dbt_command(self):
+        dbt_cli_command = self.dbt_cli_command
+
         try:
             result: subprocess.CompletedProcess[str] = subprocess.run(
-                self.dbt_cmd, capture_output=True, text=True, check=True
+                dbt_cli_command, capture_output=True, text=True, check=True
             )
-            output: str = self._strip_ansi_codes(result.stdout)
+            output: str = self.strip_ansi_codes(result.stdout)
         except subprocess.CalledProcessError as e:
             output: str = (
-                self._strip_ansi_codes(e.stderr or e.stdout)
+                self.strip_ansi_codes(e.stderr or e.stdout)
                 or "No error message captured."
             )
 
@@ -90,19 +93,6 @@ class DbtManager:
 
     async def async_execute_dbt_command(self):
         pass
-
-    def _parse_dbt_command_stdout(self, terminal_output):
-        if (
-            "does not match any enabled nodes" in terminal_output
-            or "Nothing to do" in terminal_output
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "error": "Invalid dbt model selection",
-                    "message": terminal_output,
-                },
-            )
 
     def _get_dbt_conf_files_paths(self):
         # Try to read from env vars
@@ -144,7 +134,22 @@ class DbtManager:
 
         return str(profiles_yaml_dirs[0]), str(dbt_project_yaml_dirs[0])
 
-    def _dbt_conf_files_path_errors(self, file_type: str, num_files_found: int):
+    @staticmethod
+    def _parse_dbt_command_stdout(terminal_output):
+        if (
+            "does not match any enabled nodes" in terminal_output
+            or "Nothing to do" in terminal_output
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "Invalid dbt model selection",
+                    "message": terminal_output,
+                },
+            )
+
+    @staticmethod
+    def _dbt_conf_files_path_errors(file_type: str, num_files_found: int):
         # File not found
         if num_files_found == 0:
             raise HTTPException(
@@ -158,14 +163,14 @@ class DbtManager:
                 detail={"error": f"More than one '{file_type}' found."},
             )
 
-    def _strip_ansi_codes(self, text: str) -> str:
+    @staticmethod
+    def strip_ansi_codes(text: str) -> str:
         ansi_escape: re.Pattern[str] = re.compile(r"\x1B[@-_][0-?]*[ -/]*[@-~]")
         return ansi_escape.sub("", text)
 
 
-# if __name__ == "__main__":
-#     manager = DbtManager(verb="run", target="dev")
+if __name__ == "__main__":
+    manager = DbtManager(verb="run", target="dev")
 
-#     print(f"dbt_project.yml found in {manager.dbt_project_path}")
-#     print(f"profiles.yml found in {manager.dbt_profiles_path}")
-#     print(f"selectors.yml found in {manager.dbt_profiles_path}")
+    print(f"dbt_project.yml found in {manager.dbt_project_yaml_dir}")
+    print(f"profiles.yml found in {manager.profiles_yaml_dir}")
