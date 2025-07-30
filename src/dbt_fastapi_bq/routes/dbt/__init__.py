@@ -1,8 +1,9 @@
 from fastapi import APIRouter
-from . import run, test, build
+from . import run, test, build, unsafe
 
 dbt_router = APIRouter(prefix="/dbt", tags=["dbt"])
 
 dbt_router.include_router(run.router)
 dbt_router.include_router(test.router)
 dbt_router.include_router(build.router)
+dbt_router.include_router(unsafe.router)
