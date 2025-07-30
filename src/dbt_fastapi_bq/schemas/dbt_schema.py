@@ -3,13 +3,14 @@ from typing import Optional, Annotated, Literal, Any
 import shlex
 
 
+# ====== Request Schema =====
+
 # Annotated type
 ValidatedModelStr = Annotated[
     str, StringConstraints(min_length=1, pattern=r"^[a-zA-Z0-9_]+$")
 ]
 
 
-### Unified
 class DbtCommandRequestBase(BaseModel):
     target: ValidatedModelStr = Field(
         ..., description="dbt target (e.g. dev, prod, test)"
@@ -51,6 +52,13 @@ class DbtBuildRequest(DbtCommandRequestBase):
 
 class DbtCompileSeedSnapshotDocs(DbtCommandRequestBase):
     pass
+
+
+class DbtUnsafeRequest(BaseModel):
+    unsafe_dbt_cli_command: str
+
+
+# ===== Response Schema =====
 
 
 class DbtCommandResponse(BaseModel):
