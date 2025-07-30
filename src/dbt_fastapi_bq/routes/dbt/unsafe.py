@@ -16,15 +16,23 @@ COMMAND = "unsafe"
 
 @router.post(
     f"/{COMMAND}",
-    summary="Execute arbitrary dbt command. Requiers the entire dbt CLI command to be executed. No error handling.",
+    summary="Execute arbitrary dbt command. Requiers the entire dbt CLI command to be executed. Limited error handling.",
 )
 async def run_dbt(
     payload: DbtUnsafeRequest,
 ) -> DbtCommandResponse:
-    try:
-        result = subprocess.run(
-            shlex.split(payload.unsafe_dbt_cli_command), capture_output=True, text=True
+    shlex_lst = shlex.split(payload.unsafe_dbt_cli_command)
+    if shlex_lst[0] != "dbt":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "Not a dbt command",
+                "attempted_command": payload.unsafe_dbt_cli_command,
+            },
         )
+
+    try:
+        result = subprocess.run(shlex_lst, capture_output=True, text=True)
         output = DbtManager.strip_ansi_codes(result.stdout)
     except subprocess.CalledProcessError as e:
         output = (
