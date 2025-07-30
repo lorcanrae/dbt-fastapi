@@ -1,12 +1,10 @@
 from fastapi import APIRouter
 
-from dbt_fastapi_bq.schemas.dbt_command import (
-    DbtCommandRequest,
+from dbt_fastapi_bq.dbt_manager import DbtManager
+
+from dbt_fastapi_bq.schemas.dbt_schema import (
+    DbtBuildRequest,
     DbtCommandResponse,
-)
-from dbt_fastapi_bq.utils import (
-    execute_dbt_command,
-    generate_dbt_command,
 )
 
 
@@ -20,9 +18,15 @@ COMMAND = "build"
     summary=f"Execute 'dbt {COMMAND}'",
 )
 async def run_dbt(
-    payload: DbtCommandRequest,
+    payload: DbtBuildRequest,
 ) -> DbtCommandResponse:
-    dbt_cmd = generate_dbt_command(COMMAND, payload)
-    stdout: str = execute_dbt_command(dbt_cmd, payload=payload)
+    dbt_manager = DbtManager(verb=COMMAND, **payload.model_dump())
 
-    return DbtCommandResponse(status="success", output=stdout, metadata={})
+    from pprint import pprint as print
+
+    print(dbt_manager.__dict__)
+
+    output = dbt_manager.execute_dbt_command()
+    metadata = {"dbt_command": " ".join(dbt_manager.dbt_cmd)}
+
+    return DbtCommandResponse(status="success", output=output, metadata=metadata)
