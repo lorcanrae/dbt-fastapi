@@ -22,10 +22,6 @@ async def run_dbt(
 ) -> DbtCommandResponse:
     dbt_manager = DbtManager(verb=COMMAND, **payload.model_dump())
 
-    from pprint import pprint as print
-
-    print(dbt_manager.__dict__)
-
     output = dbt_manager.execute_dbt_command()
     metadata = {"dbt_command": " ".join(dbt_manager.dbt_cmd)}
 
