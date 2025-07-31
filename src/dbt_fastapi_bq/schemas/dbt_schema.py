@@ -19,15 +19,6 @@ class DbtCommandRequestBase(BaseModel):
     exclude_args: Optional[str] = None
     selector_args: Optional[str] = None
 
-    def get_quoted_select(self) -> Optional[str]:
-        return shlex.quote(self.select_args) if self.select_args else None
-
-    def get_quoted_exclude(self) -> Optional[str]:
-        return shlex.quote(self.exclude_args) if self.exclude_args else None
-
-    def get_quoted_selector(self) -> Optional[str]:
-        return shlex.quote(self.selector_args) if self.selector_args else None
-
     @model_validator(mode="after")
     def validate_mutually_exclusive_args(self):
         if (self.select_args or self.exclude_args) and self.selector_args:
@@ -37,25 +28,34 @@ class DbtCommandRequestBase(BaseModel):
         return self
 
 
-class DbtRunTestRequest(DbtCommandRequestBase):
-    defer: Optional[bool] = False
-
-
-class DbtListRequest(DbtCommandRequestBase):
+class DbtBuildListRequest(DbtCommandRequestBase):
     resource_type: Optional[str] = None
 
 
-class DbtBuildRequest(DbtCommandRequestBase):
-    resource_type: Optional[str] = None
-    defer: Optional[bool] = False
-
-
-class DbtCompileSeedSnapshotDocs(DbtCommandRequestBase):
+class DbtRunTestCompileSeedSnapshotDocs(DbtCommandRequestBase):
     pass
 
 
 class DbtUnsafeRequest(BaseModel):
     unsafe_dbt_cli_command: str
+
+    @model_validator(mode="after")
+    def sanitize_input(self):
+        illegal_tokens = ["&&", "|", ";", "$(", "<", ">"]
+
+        for token in illegal_tokens:
+            if token in self.unsafe_dbt_cli_command:
+                raise ValueError(f"Illegal token '{token}' found in input CLI command")
+
+        shlexed_cli_command = shlex.split(self.unsafe_dbt_cli_command)
+
+        if not shlexed_cli_command or shlexed_cli_command[0] != "dbt":
+            raise ValueError("Command must start with 'dbt'")
+
+        if any("dbt" in arg for arg in shlexed_cli_command[1:]):
+            raise ValueError("Multiple 'dbt' references detected")
+
+        return self
 
 
 # ===== Response Schema =====
