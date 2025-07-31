@@ -2,7 +2,7 @@ import pytest
 from pathlib import Path
 from fastapi.testclient import TestClient
 
-from dbt_fastapi_bq.main import app
+from dbt_fastapi.main import app
 
 
 # === API Fixture ===

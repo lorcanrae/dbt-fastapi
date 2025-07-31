@@ -347,7 +347,7 @@ wheels = [
 ]
 
 [[package]]
-name = "dbt-fastapi-bq"
+name = "dbt-fastapi"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

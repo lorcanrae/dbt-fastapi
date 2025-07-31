@@ -1,9 +1,9 @@
 from fastapi import APIRouter
 import shlex
 
-from dbt_fastapi_bq.dbt_manager import DbtManager
+from dbt_fastapi.dbt_manager import DbtManager
 
-from dbt_fastapi_bq.schemas.dbt_schema import (
+from dbt_fastapi.schemas.dbt_schema import (
     DbtUnsafeRequest,
     DbtCommandResponse,
 )

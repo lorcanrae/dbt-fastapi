@@ -1,5 +1,5 @@
 [project]
-name = "dbt-fastapi-bq"
+name = "dbt-fastapi"
 version = "0.1.0"
 description = "Expose dbt CLI over FastAPI"
 readme = "README.md"

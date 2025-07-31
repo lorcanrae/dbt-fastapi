@@ -1,8 +1,8 @@
 import pytest
 import subprocess
 from fastapi import HTTPException
-from dbt_fastapi_bq.dbt_manager import DbtManager
-from dbt_fastapi_bq.schemas.dbt_schema import DbtRunTestCompileSeedSnapshotDocs
+from dbt_fastapi.dbt_manager import DbtManager
+from dbt_fastapi.schemas.dbt_schema import DbtRunTestCompileSeedSnapshotDocs
 
 
 # === CLI Construction ===
@@ -195,7 +195,7 @@ def test_multiple_profiles_yml_raises(monkeypatch, tmp_path):
 
     monkeypatch.delenv("DBT_PROFILES_DIR", raising=False)
     monkeypatch.delenv("DBT_PROJECT_DIR", raising=False)
-    monkeypatch.setattr("dbt_fastapi_bq.dbt_manager.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("dbt_fastapi.dbt_manager.PROJECT_ROOT", tmp_path)
 
     with pytest.raises(HTTPException) as exc:
         DbtManager(verb="run", target="dev")
@@ -211,7 +211,7 @@ def test_dbt_paths_fallback_to_project_discovery(monkeypatch, tmp_path):
 
     monkeypatch.delenv("DBT_PROJECT_DIR", raising=False)
     monkeypatch.delenv("DBT_PROFILES_DIR", raising=False)
-    monkeypatch.setattr("dbt_fastapi_bq.dbt_manager.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("dbt_fastapi.dbt_manager.PROJECT_ROOT", tmp_path)
 
     manager = DbtManager(verb="run", target="dev")
 

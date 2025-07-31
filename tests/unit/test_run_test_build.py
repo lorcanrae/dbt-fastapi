@@ -1,7 +1,7 @@
 import pytest
 from fastapi import status, HTTPException
 from fastapi.testclient import TestClient
-from dbt_fastapi_bq.dbt_manager import DbtManager
+from dbt_fastapi.dbt_manager import DbtManager
 
 COMMANDS = ["run", "test", "build"]
 

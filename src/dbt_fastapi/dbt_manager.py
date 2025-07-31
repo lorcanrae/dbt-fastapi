@@ -5,7 +5,7 @@ import shlex
 from fastapi import status, HTTPException
 from pathlib import Path
 
-from dbt_fastapi_bq.params import PROJECT_ROOT
+from dbt_fastapi.params import PROJECT_ROOT
 
 
 class DbtManager:

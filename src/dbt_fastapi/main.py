@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from dbt_fastapi_bq.routes import dbt_router
+from dbt_fastapi.routes import dbt_router
 
 
 app = FastAPI(
