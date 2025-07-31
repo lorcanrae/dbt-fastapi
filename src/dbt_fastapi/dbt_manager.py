@@ -1,7 +1,6 @@
 import subprocess
 import os
 import re
-import shlex
 from fastapi import status, HTTPException
 from pathlib import Path
 
@@ -37,9 +36,9 @@ class DbtManager:
         """
         self.verb: str = verb
         self.target: str = target
-        self.select_args: str | None = self._shlex_quote_input(select_args)
-        self.exclude_args: str | None = self._shlex_quote_input(exclude_args)
-        self.selector_args: str | None = self._shlex_quote_input(selector_args)
+        self.select_args: list[str] = select_args.split() if select_args else []
+        self.exclude_args: list[str] = exclude_args.split() if exclude_args else []
+        self.selector_args: list[str] = selector_args.split() if selector_args else []
 
         self.profiles_yaml_dir, self.dbt_project_yaml_dir = (
             self._get_dbt_conf_files_paths()
@@ -170,11 +169,11 @@ class DbtManager:
         ]
 
         if self.select_args:
-            dbt_cmd += ["--select", self.select_args]
+            dbt_cmd += ["--select"] + self.select_args
         if self.exclude_args:
-            dbt_cmd += ["--exclude", self.exclude_args]
+            dbt_cmd += ["--exclude"] + self.exclude_args
         if self.selector_args:
-            dbt_cmd += ["--selector", self.selector_args]
+            dbt_cmd += ["--selector"] + self.selector_args
 
         dbt_cmd += ["--target", self.target]
 
@@ -230,21 +229,6 @@ class DbtManager:
         return str(profiles_yaml_dirs[0]), str(dbt_project_yaml_dirs[0])
 
     # === Utilities ===
-
-    @staticmethod
-    def _shlex_quote_input(input: str) -> str:
-        """
-        Quote a CLI argument string using shlex for safety.
-
-        Args:
-            input: The raw CLI input string.
-
-        Returns:
-            A safely quoted string or None.
-        """
-        if input:
-            return shlex.quote(input)
-        return None
 
     @staticmethod
     def _parse_dbt_command_stdout(terminal_output):

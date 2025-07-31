@@ -38,7 +38,8 @@ def test_generate_dbt_command_from_env(monkeypatch, dummy_paths):
         "--profiles-dir",
         profiles_dir,
         "--select",
-        "'model model'",
+        "model",
+        "model",
         "--target",
         "dev",
     ]
@@ -160,13 +161,13 @@ def test_mutually_exclusive_select_and_selector():
 # === Static / Utility ===
 
 
-def test_shlex_quote_input():
-    assert DbtManager._shlex_quote_input("model_name") == "model_name"
-    assert (
-        DbtManager._shlex_quote_input("model_name model_name")
-        == "'model_name model_name'"
-    )
-    assert DbtManager._shlex_quote_input(None) is None
+# def test_shlex_quote_input():
+#     assert DbtManager._shlex_quote_input("model_name") == "model_name"
+#     assert (
+#         DbtManager._shlex_quote_input("model_name model_name")
+#         == "'model_name model_name'"
+#     )
+#     assert DbtManager._shlex_quote_input(None) is None
 
 
 def test_strip_ansi_codes():
