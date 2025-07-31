@@ -1,11 +1,9 @@
 [project]
 name = "dbt-fastapi-bq"
 version = "0.1.0"
-description = "Add your description here"
+description = "Expose dbt CLI over FastAPI"
 readme = "README.md"
-authors = [
-    { name = "Lorcan Rae", email = "lorcanrae@gmail.com" }
-]
+authors = [{ name = "Lorcan Rae", email = "lorcanrae@gmail.com" }]
 requires-python = ">=3.12"
 dependencies = [
     "dbt-bigquery>=1.10.0",
