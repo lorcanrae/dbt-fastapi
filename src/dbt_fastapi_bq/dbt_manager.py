@@ -1,6 +1,7 @@
 import subprocess
 import os
 import re
+import shlex
 from fastapi import status, HTTPException
 from pathlib import Path
 
@@ -21,9 +22,9 @@ class DbtManager:
     ):
         self.verb: str = verb
         self.target: str = target
-        self.select_args: str = select_args
-        self.exclude_args: str = exclude_args
-        self.selector_args: str = selector_args
+        self.select_args: str = self._shlex_quote_input(select_args)
+        self.exclude_args: str = self._shlex_quote_input(select_args)
+        self.selector_args: str = self._shlex_quote_input(select_args)
 
         self.profiles_yaml_dir, self.dbt_project_yaml_dir = (
             self._get_dbt_conf_files_paths()
@@ -55,12 +56,12 @@ class DbtManager:
         dbt_cli_command = self.dbt_cli_command
 
         try:
-            result: subprocess.CompletedProcess[str] = subprocess.run(
+            result = subprocess.run(
                 dbt_cli_command, capture_output=True, text=True, check=True
             )
-            output: str = self.strip_ansi_codes(result.stdout)
+            output = self.strip_ansi_codes(result.stdout)
         except subprocess.CalledProcessError as e:
-            output: str = (
+            output = (
                 self.strip_ansi_codes(e.stderr or e.stdout)
                 or "No error message captured."
             )
@@ -72,7 +73,7 @@ class DbtManager:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail={
                         "error": "Invalid dbt target",
-                        "provided_target": self.target,
+                        "provided_target": self.target or "No target found",
                         "valid_targets": valid_targets,
                         "message": output,
                     },
@@ -88,6 +89,31 @@ class DbtManager:
         # Parse the output because dbt's CLI return codes are inconsistent
         # Why does an invalid target return non-zero, but an invalid model return zero?
         self._parse_dbt_command_stdout(output)
+
+        return output
+
+    @classmethod
+    def execute_unsafe_dbt_command(cls, cli_command: list[str]):
+        try:
+            result = subprocess.run(
+                cli_command, capture_output=True, text=True, check=True
+            )
+            output = cls.strip_ansi_codes(result.stdout)
+        except subprocess.CalledProcessError as e:
+            output = (
+                cls.strip_ansi_codes(e.stderr or e.stdout)
+                or "No error message captured."
+            )
+
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"error": "dbt command failed", "message": output},
+            )
+
+        # More error handling
+        # Parse the output because dbt's CLI return codes are inconsistent
+        # Why does an invalid target return non-zero, but an invalid model return zero?
+        cls._parse_dbt_command_stdout(output)
 
         return output
 
@@ -133,6 +159,12 @@ class DbtManager:
                 )
 
         return str(profiles_yaml_dirs[0]), str(dbt_project_yaml_dirs[0])
+
+    @classmethod
+    def _shlex_quote_input(cls, input: str) -> str:
+        if input:
+            return shlex.quote(input)
+        return None
 
     @staticmethod
     def _parse_dbt_command_stdout(terminal_output):
