@@ -1,5 +1,4 @@
-from fastapi import APIRouter, HTTPException, status
-import subprocess
+from fastapi import APIRouter
 import shlex
 
 from dbt_fastapi_bq.dbt_manager import DbtManager
@@ -21,31 +20,9 @@ COMMAND = "unsafe"
 async def run_dbt(
     payload: DbtUnsafeRequest,
 ) -> DbtCommandResponse:
-    shlex_lst = shlex.split(payload.unsafe_dbt_cli_command)
-    if shlex_lst[0] != "dbt":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "Not a dbt command",
-                "attempted_command": payload.unsafe_dbt_cli_command,
-            },
-        )
+    shlex_list_cli = shlex.split(payload.unsafe_dbt_cli_command)
 
-    try:
-        result = subprocess.run(shlex_lst, capture_output=True, text=True)
-        output = DbtManager.strip_ansi_codes(result.stdout)
-    except subprocess.CalledProcessError as e:
-        output = (
-            DbtManager.strip_ansi_codes(e.stderr or e.stdout)
-            or "No error message captured."
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "dbt command failed",
-                "message": output,
-            },
-        )
+    output = DbtManager.execute_unsafe_dbt_command(shlex_list_cli)
 
     metadata = {"dbt_command": payload.unsafe_dbt_cli_command}
 
