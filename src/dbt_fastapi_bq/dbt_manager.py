@@ -23,8 +23,8 @@ class DbtManager:
         self.verb: str = verb
         self.target: str = target
         self.select_args: str = self._shlex_quote_input(select_args)
-        self.exclude_args: str = self._shlex_quote_input(select_args)
-        self.selector_args: str = self._shlex_quote_input(select_args)
+        self.exclude_args: str = self._shlex_quote_input(exclude_args)
+        self.selector_args: str = self._shlex_quote_input(selector_args)
 
         self.profiles_yaml_dir, self.dbt_project_yaml_dir = (
             self._get_dbt_conf_files_paths()
@@ -160,8 +160,8 @@ class DbtManager:
 
         return str(profiles_yaml_dirs[0]), str(dbt_project_yaml_dirs[0])
 
-    @classmethod
-    def _shlex_quote_input(cls, input: str) -> str:
+    @staticmethod
+    def _shlex_quote_input(input: str) -> str:
         if input:
             return shlex.quote(input)
         return None
@@ -202,7 +202,13 @@ class DbtManager:
 
 
 if __name__ == "__main__":
-    manager = DbtManager(verb="run", target="dev")
+    # manager = DbtManager(verb="run", target="dev")
 
-    print(f"dbt_project.yml found in {manager.dbt_project_yaml_dir}")
-    print(f"profiles.yml found in {manager.profiles_yaml_dir}")
+    # print(f"dbt_project.yml found in {manager.dbt_project_yaml_dir}")
+    # print(f"profiles.yml found in {manager.profiles_yaml_dir}")
+
+    my_str = "'model'"
+
+    shlex_str = shlex.quote(my_str)
+
+    print(shlex_str)
