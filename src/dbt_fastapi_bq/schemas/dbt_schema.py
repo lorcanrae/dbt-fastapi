@@ -3,7 +3,7 @@ from typing import Optional, Annotated, Literal, Any
 import shlex
 
 
-# ====== Request Schema =====
+# === Request Schema ===
 
 # Annotated type
 ValidatedModelStr = Annotated[
@@ -58,7 +58,7 @@ class DbtUnsafeRequest(BaseModel):
         return self
 
 
-# ===== Response Schema =====
+# === Response Schema ===
 
 
 class DbtCommandResponse(BaseModel):
