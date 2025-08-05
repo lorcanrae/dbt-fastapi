@@ -1,6 +1,16 @@
 from typing import Any
 from fastapi import status
 
+# Error hierarchy:
+#
+# DbtFastApiError (base)
+# ├── DbtValidationError
+# │   ├── DbtModelSelectionError
+# │   └── DbtTargetError
+# ├── DbtConfigurationError
+# ├── DbtExecutionError
+# └── DbtInternalError
+
 
 class DbtFastApiError(Exception):
     """
@@ -299,12 +309,6 @@ def create_configuration_missing_error(
 
     return error
 
-    # return DbtConfigurationError(
-    #     message=message,
-    #     config_type=config_file,
-    #     details={"search_paths": search_paths} if search_paths else {},
-    # )
-
 
 def create_configuration_duplicate_error(
     config_file: str, found_paths: list[str]
@@ -326,12 +330,3 @@ def create_configuration_duplicate_error(
     )
 
     return error
-
-    # return DbtConfigurationError(
-    #     message=f"Multiple '{config_file}' files found. Please ensure only one exists in your project.",
-    #     config_type=config_file,
-    #     details={
-    #         "found_paths": found_paths,
-    #         "suggestion": "Remove duplicate configuration files or use DBT_PROJECT_DIR/DBT_PROFILES_DIR environment variables",
-    #     },
-    # )
