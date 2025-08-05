@@ -447,7 +447,3 @@ class TestExceptionDesignBenefits:
         # Clear error hierarchy
         assert isinstance(translated, DbtExecutionError)
         assert isinstance(translated, DbtFastApiError)
-
-
-# if __name__ == "__main__":
-#     pytest.main([__file__])
