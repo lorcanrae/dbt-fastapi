@@ -55,12 +55,7 @@ class DbtManager:
         self.exclude_args: list[str] = exclude_args.split() if exclude_args else []
         self.selector_args: list[str] = selector_args.split() if selector_args else []
 
-        # These methods can raise our custom exceptions
-        self.profiles_yaml_dir, self.dbt_project_yaml_dir = (
-            self._get_dbt_conf_files_paths()
-        )
-        self.dbt_cli_args: list[str] = self._generate_dbt_args()
-
+        # Raise custom exceptions if needed.
         try:
             self.profiles_yaml_dir, self.dbt_project_yaml_dir = (
                 self._get_dbt_conf_files_paths()
@@ -204,17 +199,13 @@ class DbtManager:
             A list representing the dbt command arguments.
         """
         # Start with the verb (run, test, build, etc.)
-        dbt_args = [self.verb]
-
-        # Add project and profiles directories
-        dbt_args.extend(
-            [
-                "--project-dir",
-                self.dbt_project_yaml_dir,
-                "--profiles-dir",
-                self.profiles_yaml_dir,
-            ]
-        )
+        dbt_args = [
+            self.verb,
+            "--project-dir",
+            self.dbt_project_yaml_dir,
+            "--profiles-dir",
+            self.profiles_yaml_dir,
+        ]
 
         # Add selection arguments
         if self.select_args:
