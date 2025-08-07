@@ -62,7 +62,46 @@ class DbtUnsafeRequest(BaseModel):
 # === Response Schemas ===
 
 
+class DbtNode(BaseModel):
+    """
+    Represents a single dbt node with its key identifiers.
+    """
+
+    unique_id: str = Field(
+        ...,
+        description="The full unique identifier for the node (e.g. 'model.project.table_name')",
+    )
+    fqn: str = Field(
+        ..., description="Fully qualified name for use with: --select, --exclude"
+    )
+    resource_type: Optional[str] = Field(
+        ..., description="Type of dbt resource (model, test, snapshot, etc.)"
+    )
+
+
+class DbtResponse(BaseModel):
+    """
+    Unified response model for dbt commands: run, test, build, list, compile
+    """
+
+    success: bool = Field(
+        ..., description="Whether the dbt command executed successfully"
+    )
+    nodes: list[DbtNode] = Field(
+        default_factory=list,
+        description="List of dbt nodes that were processed or matched the selection criteria",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=list,
+        description="Additional metadata about the executed dbt command.",
+    )
+
+
 class DbtCommandResponse(BaseModel):
+    """
+    For the unsafe endpoint. Will eventually depreciate.
+    """
+
     status: Literal["success", "partial_failure"] = Field(
         ..., description="Execution status, e.g. success or failure"
     )
@@ -74,42 +113,3 @@ class DbtCommandResponse(BaseModel):
     metadata: dict[str, Any] = Field(
         default_factory=dict, description="Optional metadata"
     )
-
-
-class DbtListResponse(BaseModel):
-    """
-    Response model for 'list' endpoint
-    """
-
-    status: Literal["success"] = Field(
-        default="success", description="Execution status"
-    )
-    nodes: list[str] = Field(
-        default_factory=list,
-        description="List of dbt nodes matching the selection criteria",
-    )
-    metadata: dict[str, Any] = Field(
-        default_factory=dict, description="Additional metadata about the list operation"
-    )
-
-
-# class DbtNode(BaseModel):
-#     """
-#     Represents a dbt node (model, test, seed, etc.)
-#     """
-
-#     name: str = Field(..., description="Node name")
-#     resource_type: str = Field(
-#         ..., description="Type of resource (model, test, seed, etc.)"
-#     )
-#     package_name: str = Field(..., description="Package containing the node")
-#     path: Optional[str] = Field(None, description="File path relative to project root")
-#     unique_id: str = Field(..., description="Unique identifier for the node")
-#     depends_on: list[str] = Field(
-#         default_factory=list, description="List of node dependencies"
-#     )
-#     description: Optional[str] = Field(None, description="Node description")
-#     tags: list[str] = Field(default_factory=list, description="Node tags")
-#     config: dict[str, Any] = Field(
-#         default_factory=dict, description="Node configuration"
-#     )
