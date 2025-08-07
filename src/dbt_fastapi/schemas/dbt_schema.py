@@ -3,7 +3,8 @@ from typing import Optional, Annotated, Literal, Any
 import shlex
 
 
-# === Request Schema ===
+# === Request Schemas ===
+
 
 # Annotated type
 ValidatedModelStr = Annotated[
@@ -58,7 +59,7 @@ class DbtUnsafeRequest(BaseModel):
         return self
 
 
-# === Response Schema ===
+# === Response Schemas ===
 
 
 class DbtCommandResponse(BaseModel):
@@ -68,4 +69,20 @@ class DbtCommandResponse(BaseModel):
     output: str = Field(..., description="Raw dbt CLI output")
     metadata: dict[str, Any] = Field(
         default_factory=dict, description="Optional metadata"
+    )
+
+
+class DbtListResponse(BaseModel):
+    """
+    Response model for 'list' endpoint
+    """
+
+    status: Literal["success"] = Field(
+        default="success", description="Execution status"
+    )
+    nodes: list[str] = Field(
+        ..., description="List of dbt nodes matching the selection criteria"
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Additional metadata about the list operation"
     )
