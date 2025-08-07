@@ -67,6 +67,10 @@ class DbtCommandResponse(BaseModel):
         ..., description="Execution status, e.g. success or failure"
     )
     output: str = Field(..., description="Raw dbt CLI output")
+    nodes: list[str] = Field(
+        default_factory=list,
+        description="List of dbt nodes that were processed or would be processed",
+    )
     metadata: dict[str, Any] = Field(
         default_factory=dict, description="Optional metadata"
     )
@@ -81,8 +85,31 @@ class DbtListResponse(BaseModel):
         default="success", description="Execution status"
     )
     nodes: list[str] = Field(
-        ..., description="List of dbt nodes matching the selection criteria"
+        default_factory=list,
+        description="List of dbt nodes matching the selection criteria",
     )
     metadata: dict[str, Any] = Field(
         default_factory=dict, description="Additional metadata about the list operation"
     )
+
+
+# class DbtNode(BaseModel):
+#     """
+#     Represents a dbt node (model, test, seed, etc.)
+#     """
+
+#     name: str = Field(..., description="Node name")
+#     resource_type: str = Field(
+#         ..., description="Type of resource (model, test, seed, etc.)"
+#     )
+#     package_name: str = Field(..., description="Package containing the node")
+#     path: Optional[str] = Field(None, description="File path relative to project root")
+#     unique_id: str = Field(..., description="Unique identifier for the node")
+#     depends_on: list[str] = Field(
+#         default_factory=list, description="List of node dependencies"
+#     )
+#     description: Optional[str] = Field(None, description="Node description")
+#     tags: list[str] = Field(default_factory=list, description="Node tags")
+#     config: dict[str, Any] = Field(
+#         default_factory=dict, description="Node configuration"
+#     )
