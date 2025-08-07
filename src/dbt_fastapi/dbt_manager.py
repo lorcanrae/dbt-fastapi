@@ -10,7 +10,6 @@ from dbt_fastapi.params import PROJECT_ROOT
 from dbt_fastapi.exceptions import (
     DbtFastApiError,
     translate_dbt_exception,
-    create_model_selection_error,
     create_execution_failure_error,
     create_configuration_missing_error,
     create_configuration_duplicate_error,
@@ -198,6 +197,37 @@ class DbtManager:
         """
         raise NotImplementedError("Async dbt execution is not yet implemented.")
 
+    def get_nodes_from_result(self, result: dbtRunnerResult) -> list[str]:
+        """
+        Extract node names from any dbt command result.
+
+        This works for both 'list' commands and execution commands like 'run', 'test', 'build'.
+
+        Args:
+            result: The dbtRunnerResult from executing a dbt command
+
+        Returns:
+            List of node names/identifiers
+        """
+        nodes: list[str] = []
+
+        # Handle list command results (returns a list of strings directly)
+        if hasattr(result, "result") and result.result:
+            if isinstance(result.result, list):
+                return result.result
+
+            if hasattr(result.result, "results"):
+                for run_result in result.result.results:
+                    if hasattr(run_result, "node") and hasattr(
+                        run_result.node, "unique_id"
+                    ):
+                        nodes.append(run_result.node.unique_id)
+                    elif hasattr(run_result, "node") and hasattr(
+                        run_result.node, "name"
+                    ):
+                        nodes.append(run_result.node.name)
+        return nodes
+
     def get_list_nodes(self, result: dbtRunnerResult) -> list[str]:
         """
         Parse the dbt list command output into a list of nodes.
@@ -329,13 +359,6 @@ class DbtManager:
 
             # Generic
             raise create_execution_failure_error(self.dbt_cli_args)
-
-        # Successful execution, but has other issues
-        # Model selection errors
-        if self.verb != "list" and result.success and hasattr(result, "result"):
-            if hasattr(result.result, "results") and len(result.result.results) == 0:
-                selection_criteria = self._get_selection_criteria_string()
-                raise create_model_selection_error(selection_criteria)
 
     def _get_selection_criteria_string(self) -> str:
         """
