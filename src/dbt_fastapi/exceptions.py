@@ -8,6 +8,7 @@ from fastapi import status
 # │   ├── DbtModelSelectionError
 # │   └── DbtTargetError
 # ├── DbtConfigurationError
+# ├── DbtCompilationError
 # ├── DbtExecutionError
 # └── DbtInternalError
 
@@ -66,11 +67,11 @@ class DbtModelSelectionError(DbtValidationError):
         self, selection_criteria: str, original_exception: Exception | None = None
     ) -> None:
         super().__init__(
-            message=f"No models matched the selection criteria: {selection_criteria}",
-            field="selection_criteria",
+            message=f"No nodes matched the selection criteria: {selection_criteria}",
+            field="node_selection",
             details={
                 "selection_criteria": selection_criteria,
-                "suggestion": "Check your --select, --exclude, or --selector arguments",
+                "suggestion": "Check your 'select_args', 'exclude_args', or 'selector_args' values",
             },
             original_exception=original_exception,
         )
@@ -119,6 +120,30 @@ class DbtConfigurationError(DbtFastApiError):
             details["config_type"] = config_type
         if config_path:
             details["config_path"] = config_path
+
+        super().__init__(
+            message=message,
+            http_status_code=status.HTTP_400_BAD_REQUEST,
+            details=details,
+            original_exception=original_exception,
+        )
+
+
+class DbtCompilationError(DbtFastApiError):
+    """Raised when dbt models fail to compile due to SQL syntax errors."""
+
+    def __init__(
+        self,
+        message: str,
+        failed_models: list[dict[str, Any]] | None = None,
+        original_exception: Exception | None = None,
+    ) -> None:
+        failed_models = failed_models or []
+
+        details = {
+            "failed_models": failed_models,
+            "suggestion": "Check your SQL syntax in the failing models",
+        }
 
         super().__init__(
             message=message,
@@ -188,7 +213,7 @@ def translate_dbt_exception(
         context: Additional context (e.g., command, target, selection criteria)
 
     Returns:
-        Appropriate DbtFastApiError subclass
+        Relevant DbtFastApiError subclass
     """
     from dbt.exceptions import (
         DbtRuntimeError,
@@ -268,11 +293,7 @@ def translate_dbt_exception(
     )
 
 
-def create_target_selection_error(provided_target, valid_targets) -> DbtTargetError:
-    """
-    Factory function for creating target selection errors.
-    """
-    return DbtTargetError(provided_target=provided_target, valid_targets=valid_targets)
+# === Factory Functions ===
 
 
 def create_model_selection_error(selection_criteria: str) -> DbtModelSelectionError:
@@ -282,11 +303,40 @@ def create_model_selection_error(selection_criteria: str) -> DbtModelSelectionEr
     return DbtModelSelectionError(selection_criteria=selection_criteria)
 
 
+def create_target_selection_error(provided_target, valid_targets) -> DbtTargetError:
+    """
+    Factory function for creating target selection errors.
+    """
+    return DbtTargetError(provided_target=provided_target, valid_targets=valid_targets)
+
+
 def create_execution_failure_error(command: list[str]) -> DbtExecutionError:
     """
     Factory function for creating execution failure errors.
     """
     return DbtExecutionError(message="dbt command execution failed", command=command)
+
+
+def create_compilation_error(
+    failed_models: list[dict[str, Any]],
+) -> DbtCompilationError:
+    """
+    Factory function for craeting compilation errors.
+
+    Args:
+        failed_mdoels: List of models that failed compilation with error details
+    """
+    model_count = len(failed_models)
+    model_names = [model["name"] for model in failed_models]
+
+    if model_count == 1:
+        message = f"SQL compilation failed for model '{model_names[0]}'"
+    else:
+        message = (
+            f"SQL compilation failed for {model_count} models: {', '.join(model_names)}"
+        )
+
+    return DbtCompilationError(message=message, failed_models=failed_models)
 
 
 def create_configuration_missing_error(
