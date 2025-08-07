@@ -58,7 +58,7 @@ class TestCustomExceptionHierarchy:
 
         assert isinstance(error, DbtModelSelectionError)
         assert isinstance(error, DbtValidationError)
-        assert "No models matched" in error.message
+        assert "No nodes matched" in error.message
         assert error.details["selection_criteria"] == "--select model1"
         assert "Check your" in error.details["suggestion"]
 
@@ -163,7 +163,7 @@ class TestDbtExceptionTranslation:
 
     def test_translate_runtime_error_model_selection(self) -> None:
         """Test that DbtRuntimeError with model selection context becomes DbtModelSelectionError."""
-        dbt_error = DbtRuntimeError("No models found")
+        dbt_error = DbtRuntimeError("No nodes found")
         context = {
             "no_models_matched": True,
             "selection_criteria": "--select nonexistent_model",
@@ -221,10 +221,10 @@ class TestDbtManagerWithCleanExceptions:
             # Verify the HTTP exception structure
             assert exc_info.value.status_code == 400
             assert exc_info.value.detail["error"] == "DbtModelSelectionError"
-            assert "No models matched" in exc_info.value.detail["message"]
+            assert "No nodes matched" in exc_info.value.detail["message"]
             assert (
                 exc_info.value.detail["selection_criteria"]
-                == "--select nonexistent_model"
+                == "select_args: nonexistent_model"
             )
             assert "Check your" in exc_info.value.detail["suggestion"]
 
