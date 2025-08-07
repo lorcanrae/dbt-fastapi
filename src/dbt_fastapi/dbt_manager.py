@@ -1,6 +1,7 @@
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 from fastapi import HTTPException
 from dbt.cli.main import dbtRunner, dbtRunnerResult
@@ -14,6 +15,7 @@ from dbt_fastapi.exceptions import (
     create_configuration_missing_error,
     create_configuration_duplicate_error,
     create_target_selection_error,
+    create_compilation_error,
 )
 
 
@@ -27,7 +29,14 @@ class DbtManager:
     - Providing clear separation between dbt concerns and API concerns
     """
 
-    EXCLUDED_DIRS = [".venv", ".git", "__pycache__", ".pytest_cache", "logs"]
+    EXCLUDED_DIRS = [
+        ".venv",
+        ".git",
+        "__pycache__",
+        ".pytest_cache",
+        "logs",
+        "dbt_internal_packages",
+    ]
 
     def __init__(
         self,
@@ -81,6 +90,10 @@ class DbtManager:
         try:
             # Execute using dbt Python API
             result: dbtRunnerResult = self.runner.invoke(self.dbt_cli_args)
+
+            from pprint import pprint as print
+
+            print(result)
 
             # Check for application-level errors
             self._validate_dbt_result(result)
@@ -292,6 +305,12 @@ class DbtManager:
             valid_targets: list[str] = re.findall(r"- (\w+)", str(result.exception))
             raise create_target_selection_error(self.target, valid_targets)
 
+        # Check for SQL syntax compilation errors
+        if not result.success and hasattr(result, "result") and result.result:
+            failed_models = self._extract_failed_models(result)
+            if failed_models:
+                raise create_compilation_error(failed_models)
+
         # Check for model selection errors
         if result.success and hasattr(result, "result"):
             if hasattr(result.result, "results") and len(result.result.results) == 0:
@@ -312,13 +331,53 @@ class DbtManager:
         criteria_parts = []
 
         if self.select_args:
-            criteria_parts.append(f"--select {' '.join(self.select_args)}")
+            criteria_parts.append(f"select_args: {' '.join(self.select_args)}")
         if self.exclude_args:
-            criteria_parts.append(f"--exclude {' '.join(self.exclude_args)}")
+            criteria_parts.append(f"exclude_args: {' '.join(self.exclude_args)}")
         if self.selector_args:
-            criteria_parts.append(f"--selector {' '.join(self.selector_args)}")
+            criteria_parts.append(f"selector_args: {' '.join(self.selector_args)}")
 
-        return " ".join(criteria_parts) if criteria_parts else "no selection criteria"
+        return ", ".join(criteria_parts) if criteria_parts else "no selection criteria"
+
+    def _extract_failed_models(self, result: dbtRunnerResult) -> list[dict[str, Any]]:
+        """
+        Extract failed models with compilation errors from dbt result.
+
+        Args:
+            result: The dbtRunnerResult object.
+
+        Returns:
+            List of dictionaries containing failed model information.
+        """
+        failed_models: list[dict[str, Any]] = []
+
+        if not hasattr(result.result, "results"):
+            return failed_models
+
+        try:
+            from dbt.contracts.results import RunStatus
+        except ImportError:
+            return failed_models
+
+        for run_result in result.result.results:
+            if hasattr(run_result, "status") and run_result.status == RunStatus.Error:
+                model_info = {
+                    "name": getattr(run_result.node, "name", "unknown"),
+                    "path": getattr(run_result.node, "original_file_path", "unknown"),
+                    "error_message": run_result.message
+                    or "Unknown compination message",
+                }
+
+                if run_result.message:
+                    error_lines = run_result.message.split("\n")
+                    for line in error_lines:
+                        if "Syntax error:" in line or "Error:" in line:
+                            model_info["syntax_error"] = line.strip()
+                            break
+
+                failed_models.append(model_info)
+
+        return failed_models
 
     def _validate_config_files(
         self, file_type: str, found_paths: list[Path], search_paths: list[str]
