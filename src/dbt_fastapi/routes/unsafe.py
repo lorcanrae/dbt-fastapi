@@ -15,7 +15,7 @@ COMMAND = "unsafe"
 
 @router.post(
     f"/{COMMAND}",
-    summary="Execute arbitrary dbt command. Requiers the entire dbt CLI command to be executed. Limited error handling.",
+    summary="Execute arbitrary dbt command. Requires the entire dbt CLI command to be executed. Limited error handling.",
 )
 async def run_dbt(
     payload: DbtUnsafeRequest,

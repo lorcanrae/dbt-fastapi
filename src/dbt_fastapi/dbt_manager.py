@@ -2,6 +2,7 @@ import os
 import re
 from pathlib import Path
 from typing import Any
+import json
 
 from fastapi import HTTPException
 from dbt.cli.main import dbtRunner, dbtRunnerResult
@@ -10,7 +11,6 @@ from dbt_fastapi.params import PROJECT_ROOT
 from dbt_fastapi.exceptions import (
     DbtFastApiError,
     translate_dbt_exception,
-    create_model_selection_error,
     create_execution_failure_error,
     create_configuration_missing_error,
     create_configuration_duplicate_error,
@@ -90,10 +90,6 @@ class DbtManager:
         try:
             # Execute using dbt Python API
             result: dbtRunnerResult = self.runner.invoke(self.dbt_cli_args)
-
-            from pprint import pprint as print
-
-            print(result)
 
             # Check for application-level errors
             self._validate_dbt_result(result)
@@ -202,6 +198,65 @@ class DbtManager:
         """
         raise NotImplementedError("Async dbt execution is not yet implemented.")
 
+    def get_nodes_from_result(self, result: dbtRunnerResult) -> list[str]:
+        """
+        Extract node names from any dbt command result.
+
+        This works for both 'list' commands and execution commands like 'run', 'test', 'build'.
+
+        Args:
+            result: The dbtRunnerResult from executing a dbt command
+
+        Returns:
+            List of node names/identifiers
+        """
+        nodes: list[dict[str]] = []
+
+        # Handle list command results (returns a list of strings directly)
+        if hasattr(result, "result") and result.result:
+            # for dbt list
+            if isinstance(result.result, list):
+                new_result = [json.loads(json_string) for json_string in result.result]
+
+                for node in new_result:
+                    unique_id = node["unique_id"]
+                    resource_type = node["resource_type"]
+                    fqn = node["alias"]  # good enough
+
+                    node_data = {
+                        "unique_id": unique_id,
+                        "fqn": fqn,
+                        "resource_type": resource_type,
+                    }
+
+                    nodes.append(node_data)
+
+            # literally every other command
+            elif hasattr(result.result, "results"):
+                for run_result in result.result.results:
+                    if hasattr(run_result, "node"):
+                        node = run_result.node
+
+                        unique_id = getattr(node, "unique_id", "unknown")
+                        resource_type = str(getattr(node, "resource_type", "None"))
+                        fqn = getattr(node, "fqn", "unknown")
+
+                        fqn = None
+                        if hasattr(node, "fqn") and node.fqn:
+                            if isinstance(node.fqn, list):
+                                fqn = ".".join(node.fqn)
+                            else:
+                                fqn = str(node.fqn)
+
+                        node_data = {
+                            "unique_id": unique_id,
+                            "fqn": fqn,
+                            "resource_type": resource_type,
+                        }
+                        nodes.append(node_data)
+
+        return nodes
+
     # === Private Helpers ===
 
     def _generate_dbt_args(self) -> list[str]:
@@ -219,6 +274,9 @@ class DbtManager:
             "--profiles-dir",
             self.profiles_yaml_dir,
         ]
+
+        if self.verb == "list":
+            dbt_args += ["--output", "json"]
 
         # Add selection arguments
         if self.select_args:
@@ -310,20 +368,13 @@ class DbtManager:
                 raise create_target_selection_error(self.target, valid_targets)
 
             # Check for SQL syntax compilation errors
-            if hasattr(result, "result") and result.result:
+            if self.verb != "list" and hasattr(result, "result") and result.result:
                 failed_models = self._extract_failed_models(result)
                 if failed_models:
                     raise create_compilation_error(failed_models)
 
             # Generic
             raise create_execution_failure_error(self.dbt_cli_args)
-
-        # Successful execution, but has other issues
-        # Model selection errors
-        if result.success and hasattr(result, "result"):
-            if hasattr(result.result, "results") and len(result.result.results) == 0:
-                selection_criteria = self._get_selection_criteria_string()
-                raise create_model_selection_error(selection_criteria)
 
     def _get_selection_criteria_string(self) -> str:
         """

@@ -1,25 +1,30 @@
 from fastapi import APIRouter
 
 from dbt_fastapi.dbt_manager import DbtManager
-
 from dbt_fastapi.schemas.dbt_schema import (
-    DbtRunTestCompileSeedSnapshotDocs,
+    DbtBuildListRequest,
     DbtResponse,
 )
 
-
 router = APIRouter()
 
-COMMAND = "run"
+COMMAND = "list"
 
 
 @router.post(
     f"/{COMMAND}",
-    summary=f"Execute 'dbt {COMMAND}'",
+    summary=f"Execute 'dbt {COMMAND}' to get filtered list of nodes",
+    response_model=DbtResponse,
 )
-async def run_dbt(
-    payload: DbtRunTestCompileSeedSnapshotDocs,
+async def list_dbt_nodes(
+    payload: DbtBuildListRequest,
 ) -> DbtResponse:
+    """
+    List dbt nodes based on selection criteria.
+
+    Returns a list of nodes that match the provided selection,
+    exclusion, and selector arguments.
+    """
     dbt_manager = DbtManager(verb=COMMAND, **payload.model_dump())
 
     # Execute dbt command
@@ -36,4 +41,8 @@ async def run_dbt(
         "selection_criteria": dbt_manager._get_selection_criteria_string(),
     }
 
-    return DbtResponse(success=result.success, nodes=nodes, metadata=metadata)
+    return DbtResponse(
+        success=result.success,
+        nodes=nodes,
+        metadata=metadata,
+    )
