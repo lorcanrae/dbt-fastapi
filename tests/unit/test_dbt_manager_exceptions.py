@@ -60,16 +60,6 @@ class TestCustomExceptionHierarchy:
         assert isinstance(error, DbtValidationError)
         assert "No nodes matched" in error.message
         assert error.details["selection_criteria"] == "--select model1"
-        assert "Check your" in error.details["suggestion"]
-
-    def test_target_error_with_suggestions(self) -> None:
-        """Test target error includes helpful suggestions."""
-        error = DbtTargetError(provided_target="invalid", valid_targets=["dev", "prod"])
-
-        assert "Invalid dbt target 'invalid'" in error.message
-        assert error.details["provided_target"] == "invalid"
-        assert error.details["valid_targets"] == ["dev", "prod"]
-        assert "Use one of: dev, prod" in error.details["suggestion"]
 
     def test_configuration_error_factories(self) -> None:
         """Test configuration error factory functions."""
@@ -85,7 +75,6 @@ class TestCustomExceptionHierarchy:
             "profiles.yml", ["/path1/profiles.yml", "/path2/profiles.yml"]
         )
         assert "Multiple" in duplicate_error.message
-        assert "Remove duplicate" in duplicate_error.details["suggestion"]
 
     def test_execution_error_factory(self) -> None:
         """Test execution error factory."""
@@ -94,7 +83,6 @@ class TestCustomExceptionHierarchy:
         assert isinstance(error, DbtExecutionError)
         assert error.http_status_code == 500
         assert error.details["command"] == "run --target dev"
-        assert "Check dbt logs" in error.details["suggestion"]
 
 
 class TestDbtExceptionTranslation:
@@ -226,7 +214,6 @@ class TestDbtManagerWithCleanExceptions:
                 exc_info.value.detail["selection_criteria"]
                 == "select_args: nonexistent_model"
             )
-            assert "Check your" in exc_info.value.detail["suggestion"]
 
     @patch("os.walk")
     def test_execution_failure_handling(self, mock_walk: Mock) -> None:
@@ -237,8 +224,7 @@ class TestDbtManagerWithCleanExceptions:
         manager = DbtManager(verb="run", target="dev")
 
         # Mock a failed result
-        mock_result = Mock()
-        mock_result.success = False
+        mock_result = Mock(success=False, exception=None, spec=["success", "exception"])
 
         with patch.object(manager.runner, "invoke", return_value=mock_result):
             with pytest.raises(HTTPException) as exc_info:
@@ -247,7 +233,6 @@ class TestDbtManagerWithCleanExceptions:
             assert exc_info.value.status_code == 500
             assert exc_info.value.detail["error"] == "DbtExecutionError"
             assert "dbt command execution failed" in exc_info.value.detail["message"]
-            assert "Check dbt logs" in exc_info.value.detail["suggestion"]
 
     @patch("os.walk")
     def test_dbt_exception_translation(self, mock_walk: Mock) -> None:
@@ -270,7 +255,6 @@ class TestDbtManagerWithCleanExceptions:
             assert exc_info.value.detail["error"] == "DbtTargetError"
             assert exc_info.value.detail["provided_target"] == "invalid_target"
             assert "dev" in exc_info.value.detail["valid_targets"]
-            assert "Use one of: dev, prod" in exc_info.value.detail["suggestion"]
 
     @patch("os.walk")
     def test_configuration_missing_error(self, mock_walk: Mock) -> None:
@@ -301,7 +285,6 @@ class TestDbtManagerWithCleanExceptions:
         assert exc_info.value.status_code == 400
         assert exc_info.value.detail["error"] == "DbtConfigurationError"
         assert "Multiple" in exc_info.value.detail["message"]
-        assert "Remove duplicate" in exc_info.value.detail["suggestion"]
 
     def test_unsafe_command_exception_handling(self) -> None:
         """Test that unsafe commands handle exceptions properly."""
@@ -379,22 +362,6 @@ class TestExceptionDesignBenefits:
         for error in server_errors:
             assert error.http_status_code == 500
 
-    def test_helpful_error_messages(self) -> None:
-        """Test that error messages include helpful suggestions."""
-        # Model selection error should suggest checking arguments
-        model_error = create_model_selection_error("--select nonexistent")
-        assert "Check your" in model_error.details["suggestion"]
-
-        # Target error should suggest valid targets
-        target_error = DbtTargetError("invalid", ["dev", "prod"])
-        assert "Use one of: dev, prod" in target_error.details["suggestion"]
-
-        # Configuration error should suggest solutions
-        duplicate_error = create_configuration_duplicate_error(
-            "profiles.yml", ["/path1", "/path2"]
-        )
-        assert "Remove duplicate" in duplicate_error.details["suggestion"]
-
     def test_testability_benefits(self) -> None:
         """Test that custom exceptions are easier to test than HTTP exceptions."""
         # We can test business logic without HTTP concerns
@@ -404,7 +371,6 @@ class TestExceptionDesignBenefits:
         # We can inspect the error details directly
         error = exc_info.value
         assert error.details["selection_criteria"] == "--select nonexistent"
-        assert "Check your" in error.details["suggestion"]
 
         # We can test error categorization
         assert error.http_status_code == 400

@@ -300,26 +300,30 @@ class DbtManager:
             DbtModelSelectionError: When no models match selection criteria.
         """
 
-        # Check for valid target
-        if "does not have a target named" in str(result.exception):
-            valid_targets: list[str] = re.findall(r"- (\w+)", str(result.exception))
-            raise create_target_selection_error(self.target, valid_targets)
+        # Successful execution but operation failure
+        if not result.success:
+            # Check for valid target
+            if result.exception and "does not have a target named" in str(
+                result.exception
+            ):
+                valid_targets: list[str] = re.findall(r"- (\w+)", str(result.exception))
+                raise create_target_selection_error(self.target, valid_targets)
 
-        # Check for SQL syntax compilation errors
-        if not result.success and hasattr(result, "result") and result.result:
-            failed_models = self._extract_failed_models(result)
-            if failed_models:
-                raise create_compilation_error(failed_models)
+            # Check for SQL syntax compilation errors
+            if hasattr(result, "result") and result.result:
+                failed_models = self._extract_failed_models(result)
+                if failed_models:
+                    raise create_compilation_error(failed_models)
 
-        # Check for model selection errors
+            # Generic
+            raise create_execution_failure_error(self.dbt_cli_args)
+
+        # Successful execution, but has other issues
+        # Model selection errors
         if result.success and hasattr(result, "result"):
             if hasattr(result.result, "results") and len(result.result.results) == 0:
                 selection_criteria = self._get_selection_criteria_string()
                 raise create_model_selection_error(selection_criteria)
-
-        # Catch All - should stay at the end
-        elif not result.success:
-            raise create_execution_failure_error(self.dbt_cli_args)
 
     def _get_selection_criteria_string(self) -> str:
         """
