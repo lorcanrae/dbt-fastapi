@@ -5,7 +5,6 @@ from fastapi import status
 #
 # DbtFastApiError (base)
 # ├── DbtValidationError
-# │   ├── DbtModelSelectionError
 # │   └── DbtTargetError
 # ├── DbtConfigurationError
 # ├── DbtCompilationError
@@ -56,23 +55,6 @@ class DbtValidationError(DbtFastApiError):
             message=message,
             http_status_code=status.HTTP_400_BAD_REQUEST,
             details=details,
-            original_exception=original_exception,
-        )
-
-
-class DbtModelSelectionError(DbtValidationError):
-    """Raised when model selection criteria match no models."""
-
-    def __init__(
-        self, selection_criteria: str, original_exception: Exception | None = None
-    ) -> None:
-        super().__init__(
-            message=f"No nodes matched the selection criteria: {selection_criteria}",
-            field="node_selection",
-            details={
-                "selection_criteria": selection_criteria,
-                "suggestion": "Check your 'select_args', 'exclude_args', or 'selector_args' values",
-            },
             original_exception=original_exception,
         )
 
@@ -272,13 +254,6 @@ def translate_dbt_exception(
                 original_exception=dbt_exception,
             )
 
-        # Check if it's a model selection issue (when we detect no results)
-        if context.get("no_models_matched"):
-            return DbtModelSelectionError(
-                selection_criteria=context.get("selection_criteria", "unknown"),
-                original_exception=dbt_exception,
-            )
-
         # Generic runtime error
         return DbtExecutionError(
             message=f"dbt execution failed: {error_message}",
@@ -294,13 +269,6 @@ def translate_dbt_exception(
 
 
 # === Factory Functions ===
-
-
-def create_model_selection_error(selection_criteria: str) -> DbtModelSelectionError:
-    """
-    Factory function for creating model selection errors.
-    """
-    return DbtModelSelectionError(selection_criteria=selection_criteria)
 
 
 def create_target_selection_error(provided_target, valid_targets) -> DbtTargetError:
