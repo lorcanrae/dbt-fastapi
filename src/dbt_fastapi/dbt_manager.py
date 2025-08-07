@@ -91,10 +91,6 @@ class DbtManager:
             # Execute using dbt Python API
             result: dbtRunnerResult = self.runner.invoke(self.dbt_cli_args)
 
-            from pprint import pprint as print
-
-            print(result)
-
             # Check for application-level errors
             self._validate_dbt_result(result)
 
@@ -201,6 +197,22 @@ class DbtManager:
             NotImplementedError: This method is not yet implemented.
         """
         raise NotImplementedError("Async dbt execution is not yet implemented.")
+
+    def get_list_nodes(self, result: dbtRunnerResult) -> list[str]:
+        """
+        Parse the dbt list command output into a list of nodes.
+
+        Args:
+            result: The dbtRunnerResult from executing 'dbt list'
+
+        Returns:
+            List of nodes as strings
+        """
+
+        if hasattr(result, "result") and result.result:
+            if isinstance(result.result, list):
+                return result.result
+        return []
 
     # === Private Helpers ===
 
@@ -310,7 +322,7 @@ class DbtManager:
                 raise create_target_selection_error(self.target, valid_targets)
 
             # Check for SQL syntax compilation errors
-            if hasattr(result, "result") and result.result:
+            if self.verb != "list" and hasattr(result, "result") and result.result:
                 failed_models = self._extract_failed_models(result)
                 if failed_models:
                     raise create_compilation_error(failed_models)
@@ -320,7 +332,7 @@ class DbtManager:
 
         # Successful execution, but has other issues
         # Model selection errors
-        if result.success and hasattr(result, "result"):
+        if self.verb != "list" and result.success and hasattr(result, "result"):
             if hasattr(result.result, "results") and len(result.result.results) == 0:
                 selection_criteria = self._get_selection_criteria_string()
                 raise create_model_selection_error(selection_criteria)
