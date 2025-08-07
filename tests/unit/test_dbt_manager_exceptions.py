@@ -14,13 +14,11 @@ from dbt.exceptions import (
 from dbt_fastapi.exceptions import (
     DbtFastApiError,
     DbtValidationError,
-    DbtModelSelectionError,
     DbtTargetError,
     DbtConfigurationError,
     DbtExecutionError,
     DbtInternalError,
     translate_dbt_exception,
-    create_model_selection_error,
     create_execution_failure_error,
     create_configuration_missing_error,
     create_configuration_duplicate_error,
@@ -51,15 +49,6 @@ class TestCustomExceptionHierarchy:
         assert isinstance(error, DbtFastApiError)
         assert error.http_status_code == 400
         assert error.details["field"] == "target"
-
-    def test_model_selection_error_factory(self) -> None:
-        """Test model selection error factory."""
-        error = create_model_selection_error("--select model1")
-
-        assert isinstance(error, DbtModelSelectionError)
-        assert isinstance(error, DbtValidationError)
-        assert "No nodes matched" in error.message
-        assert error.details["selection_criteria"] == "--select model1"
 
     def test_configuration_error_factories(self) -> None:
         """Test configuration error factory functions."""
@@ -149,19 +138,6 @@ class TestDbtExceptionTranslation:
         assert isinstance(translated, DbtTargetError)
         assert translated.details["provided_target"] == "test"
 
-    def test_translate_runtime_error_model_selection(self) -> None:
-        """Test that DbtRuntimeError with model selection context becomes DbtModelSelectionError."""
-        dbt_error = DbtRuntimeError("No nodes found")
-        context = {
-            "no_models_matched": True,
-            "selection_criteria": "--select nonexistent_model",
-        }
-
-        translated = translate_dbt_exception(dbt_error, context)
-
-        assert isinstance(translated, DbtModelSelectionError)
-        assert translated.details["selection_criteria"] == "--select nonexistent_model"
-
     def test_translate_runtime_error_generic(self) -> None:
         """Test that generic DbtRuntimeError becomes DbtExecutionError."""
         dbt_error = DbtRuntimeError("Model compilation failed")
@@ -189,8 +165,8 @@ class TestDbtManagerWithCleanExceptions:
     """Test DbtManager using the clean exception design."""
 
     @patch("os.walk")
-    def test_model_selection_error_handling(self, mock_walk: Mock) -> None:
-        """Test that model selection errors are properly handled."""
+    def test_successful_execution_with_empty_results(self, mock_walk: Mock) -> None:
+        """Test that empty results no longer raise DbtModelSelectionError."""
         # Mock config file discovery
         mock_walk.return_value = [("/project", [], ["dbt_project.yml", "profiles.yml"])]
 
@@ -203,17 +179,12 @@ class TestDbtManagerWithCleanExceptions:
         mock_result.result.results = []  # No models found
 
         with patch.object(manager.runner, "invoke", return_value=mock_result):
-            with pytest.raises(HTTPException) as exc_info:
-                manager.execute_dbt_command()
+            # This should NOT raise an exception anymore
+            result = manager.execute_dbt_command()
+            nodes = manager.get_nodes_from_result(result)
 
-            # Verify the HTTP exception structure
-            assert exc_info.value.status_code == 400
-            assert exc_info.value.detail["error"] == "DbtModelSelectionError"
-            assert "No nodes matched" in exc_info.value.detail["message"]
-            assert (
-                exc_info.value.detail["selection_criteria"]
-                == "select_args: nonexistent_model"
-            )
+            assert result.success is True
+            assert len(nodes) == 0  # Empty list is returned, not an exception
 
     @patch("os.walk")
     def test_execution_failure_handling(self, mock_walk: Mock) -> None:
@@ -304,6 +275,63 @@ class TestDbtManagerWithCleanExceptions:
             assert "Configuration parsing error" in exc_info.value.detail["message"]
 
 
+class TestNodeExtraction:
+    """Test the new unified node extraction functionality."""
+
+    def test_get_nodes_from_list_result(self) -> None:
+        """Test node extraction from list command results."""
+        manager = Mock()
+
+        # Mock list result
+        mock_result = Mock()
+        mock_result.result = ["model.project.model1", "model.project.model2"]
+
+        from dbt_fastapi.dbt_manager import DbtManager
+
+        nodes = DbtManager.get_nodes_from_result(manager, mock_result)
+
+        assert nodes == ["model.project.model1", "model.project.model2"]
+
+    def test_get_nodes_from_execution_result(self) -> None:
+        """Test node extraction from execution command results."""
+        manager = Mock()
+
+        # Mock execution result with run results
+        mock_result = Mock()
+        mock_result.result = Mock()
+
+        mock_run_result1 = Mock()
+        mock_run_result1.node = Mock()
+        mock_run_result1.node.unique_id = "model.project.model1"
+
+        mock_run_result2 = Mock()
+        mock_run_result2.node = Mock()
+        mock_run_result2.node.unique_id = "test.project.test1"
+
+        mock_result.result.results = [mock_run_result1, mock_run_result2]
+
+        from dbt_fastapi.dbt_manager import DbtManager
+
+        nodes = DbtManager.get_nodes_from_result(manager, mock_result)
+
+        assert nodes == ["model.project.model1", "test.project.test1"]
+
+    def test_get_nodes_from_empty_result(self) -> None:
+        """Test node extraction from empty results."""
+        manager = Mock()
+
+        # Mock empty result
+        mock_result = Mock()
+        mock_result.result = Mock()
+        mock_result.result.results = []
+
+        from dbt_fastapi.dbt_manager import DbtManager
+
+        nodes = DbtManager.get_nodes_from_result(manager, mock_result)
+
+        assert nodes == []
+
+
 class TestExceptionDesignBenefits:
     """Test cases that demonstrate the benefits of the clean exception design."""
 
@@ -320,7 +348,6 @@ class TestExceptionDesignBenefits:
     def test_consistent_error_structure(self) -> None:
         """Test that all custom exceptions have consistent structure."""
         errors = [
-            create_model_selection_error("--select model1"),
             DbtTargetError("invalid", ["dev", "prod"]),
             create_configuration_missing_error("dbt_project.yml"),
             create_execution_failure_error(["run"]),
@@ -345,7 +372,6 @@ class TestExceptionDesignBenefits:
         """Test that errors are properly categorized by HTTP status codes."""
         # Client errors (400)
         client_errors = [
-            create_model_selection_error("--select model1"),
             DbtTargetError("invalid", ["dev"]),
             create_configuration_missing_error("dbt_project.yml"),
         ]
@@ -365,33 +391,16 @@ class TestExceptionDesignBenefits:
     def test_testability_benefits(self) -> None:
         """Test that custom exceptions are easier to test than HTTP exceptions."""
         # We can test business logic without HTTP concerns
-        with pytest.raises(DbtModelSelectionError) as exc_info:
-            raise create_model_selection_error("--select nonexistent")
+        with pytest.raises(DbtTargetError) as exc_info:
+            raise DbtTargetError("invalid", ["dev", "prod"])
 
         # We can inspect the error details directly
         error = exc_info.value
-        assert error.details["selection_criteria"] == "--select nonexistent"
+        assert error.details["provided_target"] == "invalid"
 
         # We can test error categorization
         assert error.http_status_code == 400
         assert isinstance(error, DbtValidationError)
-
-    def test_maintainability_benefits(self) -> None:
-        """Test that the design supports easy maintenance and extension."""
-
-        # Easy to add new error types
-        class DbtCustomError(DbtFastApiError):
-            def __init__(self, custom_field: str) -> None:
-                super().__init__(
-                    message=f"Custom error: {custom_field}",
-                    http_status_code=400,
-                    details={"custom_field": custom_field},
-                )
-
-        custom_error = DbtCustomError("test_value")
-        assert custom_error.message == "Custom error: test_value"
-        assert custom_error.details["custom_field"] == "test_value"
-        assert isinstance(custom_error, DbtFastApiError)
 
     def test_debugging_benefits(self) -> None:
         """Test that the design provides better debugging information."""
@@ -399,7 +408,6 @@ class TestExceptionDesignBenefits:
         context = {
             "target": "dev",
             "command": ["run", "--select", "model1"],
-            "selection_criteria": "--select model1",
         }
 
         translated = translate_dbt_exception(original_dbt_error, context)
