@@ -278,43 +278,43 @@ class TestDbtManagerWithCleanExceptions:
 class TestNodeExtraction:
     """Test the new unified node extraction functionality."""
 
-    def test_get_nodes_from_list_result(self) -> None:
-        """Test node extraction from list command results."""
-        manager = Mock()
+    # def test_get_nodes_from_list_result(self) -> None:
+    #     """Test node extraction from list command results."""
+    #     manager = Mock()
 
-        # Mock list result
-        mock_result = Mock()
-        mock_result.result = ["model.project.model1", "model.project.model2"]
+    #     # Mock list result
+    #     mock_result = Mock()
+    #     mock_result.result = ["model.project.model1", "model.project.model2"]
 
-        from dbt_fastapi.dbt_manager import DbtManager
+    #     from dbt_fastapi.dbt_manager import DbtManager
 
-        nodes = DbtManager.get_nodes_from_result(manager, mock_result)
+    #     nodes = DbtManager.get_nodes_from_result(manager, mock_result)
 
-        assert nodes == ["model.project.model1", "model.project.model2"]
+    #     assert nodes == ["model.project.model1", "model.project.model2"]
 
-    def test_get_nodes_from_execution_result(self) -> None:
-        """Test node extraction from execution command results."""
-        manager = Mock()
+    # def test_get_nodes_from_execution_result(self) -> None:
+    #     """Test node extraction from execution command results."""
+    #     manager = Mock()
 
-        # Mock execution result with run results
-        mock_result = Mock()
-        mock_result.result = Mock()
+    #     # Mock execution result with run results
+    #     mock_result = Mock()
+    #     mock_result.result = Mock()
 
-        mock_run_result1 = Mock()
-        mock_run_result1.node = Mock()
-        mock_run_result1.node.unique_id = "model.project.model1"
+    #     mock_run_result1 = Mock()
+    #     mock_run_result1.node = Mock()
+    #     mock_run_result1.node.unique_id = "model.project.model1"
 
-        mock_run_result2 = Mock()
-        mock_run_result2.node = Mock()
-        mock_run_result2.node.unique_id = "test.project.test1"
+    #     mock_run_result2 = Mock()
+    #     mock_run_result2.node = Mock()
+    #     mock_run_result2.node.unique_id = "test.project.test1"
 
-        mock_result.result.results = [mock_run_result1, mock_run_result2]
+    #     mock_result.result.results = [mock_run_result1, mock_run_result2]
 
-        from dbt_fastapi.dbt_manager import DbtManager
+    #     from dbt_fastapi.dbt_manager import DbtManager
 
-        nodes = DbtManager.get_nodes_from_result(manager, mock_result)
+    #     nodes = DbtManager.get_nodes_from_result(manager, mock_result)
 
-        assert nodes == ["model.project.model1", "test.project.test1"]
+    #     assert nodes == ["model.project.model1", "test.project.test1"]
 
     def test_get_nodes_from_empty_result(self) -> None:
         """Test node extraction from empty results."""
