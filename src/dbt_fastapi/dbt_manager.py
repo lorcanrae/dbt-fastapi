@@ -2,6 +2,7 @@ import os
 import re
 from pathlib import Path
 from typing import Any
+import json
 
 from fastapi import HTTPException
 from dbt.cli.main import dbtRunner, dbtRunnerResult
@@ -209,40 +210,52 @@ class DbtManager:
         Returns:
             List of node names/identifiers
         """
-        nodes: list[str] = []
+        nodes: list[dict[str]] = []
 
         # Handle list command results (returns a list of strings directly)
         if hasattr(result, "result") and result.result:
+            # for dbt list
             if isinstance(result.result, list):
-                return result.result
+                new_result = [json.loads(json_string) for json_string in result.result]
 
-            if hasattr(result.result, "results"):
+                for node in new_result:
+                    unique_id = node["unique_id"]
+                    resource_type = node["resource_type"]
+                    fqn = node["alias"]  # good enough
+
+                    node_data = {
+                        "unique_id": unique_id,
+                        "fqn": fqn,
+                        "resource_type": resource_type,
+                    }
+
+                    nodes.append(node_data)
+
+            # literally every other command
+            elif hasattr(result.result, "results"):
                 for run_result in result.result.results:
-                    if hasattr(run_result, "node") and hasattr(
-                        run_result.node, "unique_id"
-                    ):
-                        nodes.append(run_result.node.unique_id)
-                    elif hasattr(run_result, "node") and hasattr(
-                        run_result.node, "name"
-                    ):
-                        nodes.append(run_result.node.name)
+                    if hasattr(run_result, "node"):
+                        node = run_result.node
+
+                        unique_id = getattr(node, "unique_id", "unknown")
+                        resource_type = str(getattr(node, "resource_type", "None"))
+                        fqn = getattr(node, "fqn", "unknown")
+
+                        fqn = None
+                        if hasattr(node, "fqn") and node.fqn:
+                            if isinstance(node.fqn, list):
+                                fqn = ".".join(node.fqn)
+                            else:
+                                fqn = str(node.fqn)
+
+                        node_data = {
+                            "unique_id": unique_id,
+                            "fqn": fqn,
+                            "resource_type": resource_type,
+                        }
+                        nodes.append(node_data)
+
         return nodes
-
-    def get_list_nodes(self, result: dbtRunnerResult) -> list[str]:
-        """
-        Parse the dbt list command output into a list of nodes.
-
-        Args:
-            result: The dbtRunnerResult from executing 'dbt list'
-
-        Returns:
-            List of nodes as strings
-        """
-
-        if hasattr(result, "result") and result.result:
-            if isinstance(result.result, list):
-                return result.result
-        return []
 
     # === Private Helpers ===
 
@@ -261,6 +274,9 @@ class DbtManager:
             "--profiles-dir",
             self.profiles_yaml_dir,
         ]
+
+        if self.verb == "list":
+            dbt_args += ["--output", "json"]
 
         # Add selection arguments
         if self.select_args:
