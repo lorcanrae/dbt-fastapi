@@ -23,3 +23,13 @@ dev = [
     "pytest-mock>=3.14.1",
     "ruff>=0.12.7",
 ]
+
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    # Ignore dbt's deprecated datetime.utcnow() usage
+    "ignore:datetime.datetime.utcnow\\(\\) is deprecated:DeprecationWarning:dbt_common.invocation",
+    # Ignore dbt's deprecated Click parser usage
+    "ignore:'parser.OptionParser' is deprecated:DeprecationWarning:dbt.cli.options",
+    "ignore:'parser.ParsingState' is deprecated:DeprecationWarning:dbt.cli.options",
+]

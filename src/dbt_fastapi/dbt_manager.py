@@ -1,18 +1,42 @@
-import subprocess
 import os
 import re
-from fastapi import status, HTTPException
 from pathlib import Path
+from typing import Any
+
+from fastapi import HTTPException
+from dbt.cli.main import dbtRunner, dbtRunnerResult
 
 from dbt_fastapi.params import PROJECT_ROOT
+from dbt_fastapi.exceptions import (
+    DbtFastApiError,
+    translate_dbt_exception,
+    create_model_selection_error,
+    create_execution_failure_error,
+    create_configuration_missing_error,
+    create_configuration_duplicate_error,
+    create_target_selection_error,
+    create_compilation_error,
+)
 
 
 class DbtManager:
     """
-    Manages the construction and execution of dbt CLI commands within a FastAPI app.
+    Manages the construction and execution of dbt commands using the dbt Python API.
+
+    This class follows clean architecture principles by:
+    - Using domain-specific exceptions instead of dbt's internal exceptions
+    - Translating dbt errors into application-specific errors
+    - Providing clear separation between dbt concerns and API concerns
     """
 
-    EXCLUDED_DIRS = [".venv", ".git", "__pycache__", ".pytest_cache", "logs"]
+    EXCLUDED_DIRS = [
+        ".venv",
+        ".git",
+        "__pycache__",
+        ".pytest_cache",
+        "logs",
+        "dbt_internal_packages",
+    ]
 
     def __init__(
         self,
@@ -22,7 +46,7 @@ class DbtManager:
         exclude_args: str | None = None,
         selector_args: str | None = None,
         resource_type: str | None = None,
-    ):
+    ) -> None:
         """
         Initialize a DbtManager instance.
 
@@ -40,61 +64,74 @@ class DbtManager:
         self.exclude_args: list[str] = exclude_args.split() if exclude_args else []
         self.selector_args: list[str] = selector_args.split() if selector_args else []
 
-        self.profiles_yaml_dir, self.dbt_project_yaml_dir = (
-            self._get_dbt_conf_files_paths()
-        )
-        self.dbt_cli_command: list[str] = self._generate_dbt_command()
+        # Raise custom exceptions if needed.
+        try:
+            self.profiles_yaml_dir, self.dbt_project_yaml_dir = (
+                self._get_dbt_conf_files_paths()
+            )
+            self.dbt_cli_args: list[str] = self._generate_dbt_args()
+            self.runner = dbtRunner()
+        except DbtFastApiError as e:
+            raise HTTPException(
+                status_code=e.http_status_code,
+                detail={"error": type(e).__name__, "message": e.message, **e.details},
+            )
 
     def execute_dbt_command(self) -> str:
         """
-        Run the dbt command synchronously and return its stdout output.
+        Run the dbt command using the Python API and return its output.
 
         Raises:
             HTTPException: If the dbt command fails or configuration is invalid.
 
         Returns:
-            Sanitized stdout output from dbt CLI.
+            Formatted output from dbt execution.
         """
-        dbt_cli_command = self.dbt_cli_command
-
         try:
-            result = subprocess.run(
-                dbt_cli_command, capture_output=True, text=True, check=True
-            )
-            output = self.strip_ansi_codes(result.stdout)
-        except subprocess.CalledProcessError as e:
-            output = (
-                self.strip_ansi_codes(e.stderr or e.stdout)
-                or "No error message captured."
-            )
+            # Execute using dbt Python API
+            result: dbtRunnerResult = self.runner.invoke(self.dbt_cli_args)
 
-            # Target error
-            if "does not have a target named" in output:
-                valid_targets: list[str] = re.findall(r"- (\w+)", output)
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "error": "Invalid dbt target",
-                        "provided_target": self.target or "No target found",
-                        "valid_targets": valid_targets,
-                        "message": output,
-                    },
-                )
+            from pprint import pprint as print
 
-            # Fallback
+            print(result)
+
+            # Check for application-level errors
+            self._validate_dbt_result(result)
+
+            return result
+
+        except DbtFastApiError as e:
+            # Our custom exceptions - convert to HTTP exceptions
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={"error": "dbt command failed", "message": output},
+                status_code=e.http_status_code,
+                detail={
+                    "error": type(e).__name__,
+                    "message": e.message,
+                    **e.details,
+                },
             )
 
-        # More error handling
-        # Parse the output because dbt's CLI return codes are inconsistent
-        # Why does an invalid target return non-zero, but an invalid model return zero?
-        self._parse_dbt_command_stdout(output)
+        except Exception as dbt_exception:
+            # Catch all
+            context = {
+                "target": self.target,
+                "command": self.dbt_cli_args,
+                "profiles_dir": self.profiles_yaml_dir,
+                "project_dir": self.dbt_project_yaml_dir,
+            }
 
-        return output
+            app_exception = translate_dbt_exception(dbt_exception, context)
 
-    async def async_execute_dbt_command(self):
+            raise HTTPException(
+                status_code=app_exception.http_status_code,
+                detail={
+                    "error": type(app_exception).__name__,
+                    "message": app_exception.message,
+                    **app_exception.details,
+                },
+            )
+
+    async def async_execute_dbt_command(self) -> str:
         """
         Placeholder for future async execution support.
 
@@ -106,7 +143,7 @@ class DbtManager:
     @classmethod
     def execute_unsafe_dbt_command(cls, cli_command: list[str]) -> str:
         """
-        Execute a raw dbt CLI command without argument sanitation.
+        Execute a raw dbt CLI command using the Python API.
 
         Args:
             cli_command: A list representing the full dbt CLI command.
@@ -115,30 +152,45 @@ class DbtManager:
             HTTPException: On execution failure or invalid configuration.
 
         Returns:
-            Sanitized stdout output.
+            Formatted output.
         """
         try:
-            result = subprocess.run(
-                cli_command, capture_output=True, text=True, check=True
+            runner = dbtRunner()
+            # Remove 'dbt' from the command as it's not needed for the API
+            if cli_command[0] == "dbt":
+                cli_command = cli_command[1:]
+
+            result: dbtRunnerResult = runner.invoke(cli_command)
+
+            if not result.success:
+                raise create_execution_failure_error(cli_command)
+
+            return result
+
+        except DbtFastApiError as e:
+            # Our custom exceptions
+            raise HTTPException(
+                status_code=e.http_status_code,
+                detail={
+                    "error": type(e).__name__,
+                    "message": e.message,
+                    **e.details,
+                },
             )
-            output = cls.strip_ansi_codes(result.stdout)
-        except subprocess.CalledProcessError as e:
-            output = (
-                cls.strip_ansi_codes(e.stderr or e.stdout)
-                or "No error message captured."
-            )
+
+        except Exception as dbt_exception:
+            # Translate dbt exceptions
+            context = {"command": cli_command}
+            app_exception = translate_dbt_exception(dbt_exception, context)
 
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={"error": "dbt command failed", "message": output},
+                status_code=app_exception.http_status_code,
+                detail={
+                    "error": type(app_exception).__name__,
+                    "message": app_exception.message,
+                    **app_exception.details,
+                },
             )
-
-        # More error handling
-        # Parse the output because dbt's CLI return codes are inconsistent
-        # Why does an invalid target return non-zero, but an invalid model return zero?
-        cls._parse_dbt_command_stdout(output)
-
-        return output
 
     @classmethod
     async def async_execute_unsafe_dbt_command(cls, cli_command: list[str]) -> str:
@@ -152,15 +204,15 @@ class DbtManager:
 
     # === Private Helpers ===
 
-    def _generate_dbt_command(self) -> list[str]:
+    def _generate_dbt_args(self) -> list[str]:
         """
-        Construct the dbt CLI command based on instance attributes.
+        Construct the dbt command arguments for the Python API.
 
         Returns:
-            A list representing the full dbt command to be executed.
+            A list representing the dbt command arguments.
         """
-        dbt_cmd = [
-            "dbt",
+        # Start with the verb (run, test, build, etc.)
+        dbt_args = [
             self.verb,
             "--project-dir",
             self.dbt_project_yaml_dir,
@@ -168,18 +220,20 @@ class DbtManager:
             self.profiles_yaml_dir,
         ]
 
+        # Add selection arguments
         if self.select_args:
-            dbt_cmd += ["--select"] + self.select_args
+            dbt_args.extend(["--select"] + self.select_args)
         if self.exclude_args:
-            dbt_cmd += ["--exclude"] + self.exclude_args
+            dbt_args.extend(["--exclude"] + self.exclude_args)
         if self.selector_args:
-            dbt_cmd += ["--selector"] + self.selector_args
+            dbt_args.extend(["--selector"] + self.selector_args)
 
-        dbt_cmd += ["--target", self.target]
+        # Add target
+        dbt_args.extend(["--target", self.target])
 
-        return dbt_cmd
+        return dbt_args
 
-    def _get_dbt_conf_files_paths(self):
+    def _get_dbt_conf_files_paths(self) -> tuple[str, str]:
         """
         Locate and validate paths for dbt_project.yml and profiles.yml.
 
@@ -187,9 +241,8 @@ class DbtManager:
             A tuple of (profiles_dir, project_dir) as strings.
 
         Raises:
-            HTTPException: If config files are missing or duplicated.
+            DbtConfigurationError: If config files are missing or duplicated.
         """
-
         dbt_project_dir = os.environ.get("DBT_PROJECT_DIR")
         dbt_profiles_dir = os.environ.get("DBT_PROFILES_DIR")
 
@@ -197,14 +250,16 @@ class DbtManager:
             return dbt_profiles_dir, dbt_project_dir
 
         # Discover dirs
-        dbt_project_yaml_dirs: list = []
-        profiles_yaml_dirs: list = []
-        selectors_yaml_dirs: list = []
+        dbt_project_yaml_dirs: list[Path] = []
+        profiles_yaml_dirs: list[Path] = []
+        selectors_yaml_dirs: list[Path] = []
+        search_paths: list[str] = []
 
         # Find the parent dirs
         for root, dirs, files in os.walk(PROJECT_ROOT):
             dirs[:] = [d for d in dirs if d not in DbtManager.EXCLUDED_DIRS]
             root_path = Path(root)
+            search_paths.append(str(root_path))
 
             if "dbt_project.yml" in files:
                 dbt_project_yaml_dirs.append(root_path.resolve())
@@ -213,85 +268,137 @@ class DbtManager:
             if self.selector_args and "selectors.yml" in files:
                 selectors_yaml_dirs.append(root_path.resolve())
 
-        # Error handling
-        self._dbt_conf_files_path_errors("dbt_project.yml", len(dbt_project_yaml_dirs))
-        self._dbt_conf_files_path_errors("profiles.yml", len(profiles_yaml_dirs))
+        # Validate configuration files using our custom exceptions
+        self._validate_config_files(
+            "dbt_project.yml", dbt_project_yaml_dirs, search_paths
+        )
+        self._validate_config_files("profiles.yml", profiles_yaml_dirs, search_paths)
 
-        # Only needs to exist if selector_args are passed
+        # Validate selectors.yml if needed
         if self.selector_args:
-            self._dbt_conf_files_path_errors("selectors.yml", len(selectors_yaml_dirs))
+            self._validate_config_files(
+                "selectors.yml", selectors_yaml_dirs, search_paths
+            )
+
+            # Ensure selectors.yml is at same level as dbt_project.yml
             if selectors_yaml_dirs[0] != dbt_project_yaml_dirs[0]:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="'selectors.yml' not at same level as 'dbt_project.yml'",
+                raise create_configuration_missing_error(
+                    "selectors.yml", [str(dbt_project_yaml_dirs[0])]
                 )
 
         return str(profiles_yaml_dirs[0]), str(dbt_project_yaml_dirs[0])
 
-    # === Utilities ===
-
-    @staticmethod
-    def _parse_dbt_command_stdout(terminal_output):
+    def _validate_dbt_result(self, result: dbtRunnerResult) -> None:
         """
-        Raise 400 errors for invalid dbt model selection based on output.
+        Validate dbt execution result and raise appropriate exceptions.
 
         Args:
-            terminal_output: Raw output from dbt CLI.
+            result: The dbtRunnerResult object.
 
         Raises:
-            HTTPException: If CLI indicates no models were matched or run.
+            DbtExecutionError: When dbt execution fails.
+            DbtModelSelectionError: When no models match selection criteria.
         """
-        if (
-            "does not match any enabled nodes" in terminal_output
-            or "Nothing to do" in terminal_output
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "error": "Invalid dbt model selection",
-                    "message": terminal_output,
-                },
-            )
 
-    @staticmethod
-    def _dbt_conf_files_path_errors(file_type: str, num_files_found: int):
+        # Check for valid target
+        if "does not have a target named" in str(result.exception):
+            valid_targets: list[str] = re.findall(r"- (\w+)", str(result.exception))
+            raise create_target_selection_error(self.target, valid_targets)
+
+        # Check for SQL syntax compilation errors
+        if not result.success and hasattr(result, "result") and result.result:
+            failed_models = self._extract_failed_models(result)
+            if failed_models:
+                raise create_compilation_error(failed_models)
+
+        # Check for model selection errors
+        if result.success and hasattr(result, "result"):
+            if hasattr(result.result, "results") and len(result.result.results) == 0:
+                selection_criteria = self._get_selection_criteria_string()
+                raise create_model_selection_error(selection_criteria)
+
+        # Catch All - should stay at the end
+        elif not result.success:
+            raise create_execution_failure_error(self.dbt_cli_args)
+
+    def _get_selection_criteria_string(self) -> str:
         """
-        Raise informative HTTP errors based on file discovery results.
+        Get a string representation of the current selection criteria.
+
+        Returns:
+            A string describing the selection criteria used.
+        """
+        criteria_parts = []
+
+        if self.select_args:
+            criteria_parts.append(f"select_args: {' '.join(self.select_args)}")
+        if self.exclude_args:
+            criteria_parts.append(f"exclude_args: {' '.join(self.exclude_args)}")
+        if self.selector_args:
+            criteria_parts.append(f"selector_args: {' '.join(self.selector_args)}")
+
+        return ", ".join(criteria_parts) if criteria_parts else "no selection criteria"
+
+    def _extract_failed_models(self, result: dbtRunnerResult) -> list[dict[str, Any]]:
+        """
+        Extract failed models with compilation errors from dbt result.
+
+        Args:
+            result: The dbtRunnerResult object.
+
+        Returns:
+            List of dictionaries containing failed model information.
+        """
+        failed_models: list[dict[str, Any]] = []
+
+        if not hasattr(result.result, "results"):
+            return failed_models
+
+        try:
+            from dbt.contracts.results import RunStatus
+        except ImportError:
+            return failed_models
+
+        for run_result in result.result.results:
+            if hasattr(run_result, "status") and run_result.status == RunStatus.Error:
+                model_info = {
+                    "name": getattr(run_result.node, "name", "unknown"),
+                    "path": getattr(run_result.node, "original_file_path", "unknown"),
+                    "error_message": run_result.message
+                    or "Unknown compination message",
+                }
+
+                if run_result.message:
+                    error_lines = run_result.message.split("\n")
+                    for line in error_lines:
+                        if "Syntax error:" in line or "Error:" in line:
+                            model_info["syntax_error"] = line.strip()
+                            break
+
+                failed_models.append(model_info)
+
+        return failed_models
+
+    def _validate_config_files(
+        self, file_type: str, found_paths: list[Path], search_paths: list[str]
+    ) -> None:
+        """
+        Validate that exactly one config file of the given type was found.
 
         Args:
             file_type: The name of the file (e.g., dbt_project.yml).
-            num_files_found: How many were discovered.
+            found_paths: List of paths where the file was found.
+            search_paths: List of all paths that were searched.
 
         Raises:
-            HTTPException: If none or more than one copy of the file was found.
+            DbtConfigurationError: If none or more than one copy found.
         """
-
-        # File not found
-        if num_files_found == 0:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={"error": f"'{file_type}' not found."},
+        if len(found_paths) == 0:
+            raise create_configuration_missing_error(file_type, search_paths)
+        elif len(found_paths) > 1:
+            raise create_configuration_duplicate_error(
+                file_type, [str(path) for path in found_paths]
             )
-        # More than one of a file found
-        if num_files_found > 1:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={"error": f"More than one '{file_type}' found."},
-            )
-
-    @staticmethod
-    def strip_ansi_codes(text: str) -> str:
-        """
-        Strip ANSI escape sequences from terminal output.
-
-        Args:
-            text: Terminal string possibly containing ANSI codes.
-
-        Returns:
-            Cleaned string without formatting codes.
-        """
-        ansi_escape: re.Pattern[str] = re.compile(r"\x1B[@-_][0-?]*[ -/]*[@-~]")
-        return ansi_escape.sub("", text)
 
 
 if __name__ == "__main__":
