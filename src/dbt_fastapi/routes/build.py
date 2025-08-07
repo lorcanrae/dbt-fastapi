@@ -22,7 +22,25 @@ async def run_dbt(
 ) -> DbtCommandResponse:
     dbt_manager = DbtManager(verb=COMMAND, **payload.model_dump())
 
-    output = dbt_manager.execute_dbt_command()
-    metadata = {"dbt_command": " ".join(dbt_manager.dbt_cli_args)}
+    # Execute dbt command
+    result = dbt_manager.execute_dbt_command()
 
-    return DbtCommandResponse(status="success", output=output, metadata=metadata)
+    # Extract list of nodes found
+    nodes = dbt_manager.get_nodes_from_result(result)
+
+    output_str = f"dbt {COMMAND} completed with success={result.success}"
+
+    if hasattr(result, "result") and result.result:
+        if hasattr(result.result, "results"):
+            output_str += f", {len(result.result.results)} nodes processed"
+
+    metadata = {
+        "dbt_command": " ".join(dbt_manager.dbt_cli_args),
+        "success": result.success,
+        "nodes_processed": len(nodes),
+        "selection_criteria": dbt_manager._get_selection_criteria_string(),
+    }
+
+    return DbtCommandResponse(
+        status="success", output=output_str, nodes=nodes, metadata=metadata
+    )

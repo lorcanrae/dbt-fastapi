@@ -27,11 +27,11 @@ async def list_dbt_nodes(
     """
     dbt_manager = DbtManager(verb=COMMAND, **payload.model_dump())
 
-    # Execute the dbt command
+    # Execute dbt command
     result = dbt_manager.execute_dbt_command()
 
     # Extract list of nodes found
-    nodes = dbt_manager.get_list_nodes(result)
+    nodes = dbt_manager.get_nodes_from_result(result)
 
     metadata = {
         "dbt_command": " ".join(dbt_manager.dbt_cli_args),
