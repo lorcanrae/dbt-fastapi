@@ -2,7 +2,7 @@ from fastapi import APIRouter
 
 from dbt_fastapi.dbt_manager import DbtManager
 from dbt_fastapi.schemas.dbt_schema import (
-    DbtRunTestCompileSeedSnapshotDocs,
+    DbtRunTestCompileSeedSnapshotDocsRequest,
     DbtResponse,
 )
 
@@ -18,7 +18,7 @@ COMMAND = "test"
     response_model=DbtResponse,
 )
 async def run_dbt(
-    payload: DbtRunTestCompileSeedSnapshotDocs,
+    payload: DbtRunTestCompileSeedSnapshotDocsRequest,
 ) -> DbtResponse:
     """
     Execute dbt test command.
