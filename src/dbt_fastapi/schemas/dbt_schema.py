@@ -33,7 +33,7 @@ class DbtBuildListRequest(DbtCommandRequestBase):
     resource_type: Optional[str] = None
 
 
-class DbtRunTestCompileSeedSnapshotDocs(DbtCommandRequestBase):
+class DbtRunTestCompileSeedSnapshotDocsRequest(DbtCommandRequestBase):
     pass
 
 
@@ -76,6 +76,9 @@ class DbtNode(BaseModel):
     )
     resource_type: Optional[str] = Field(
         ..., description="Type of dbt resource (model, test, snapshot, etc.)"
+    )
+    depends_on: list[Optional[str]] = Field(
+        default_factory=list, description="Upstream node dependencies."
     )
 
 
