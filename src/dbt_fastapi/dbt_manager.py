@@ -222,11 +222,13 @@ class DbtManager:
                     unique_id = node["unique_id"]
                     resource_type = node["resource_type"]
                     fqn = node["alias"]  # good enough
+                    depends_on = node["depends_on"].get("nodes")
 
                     node_data = {
                         "unique_id": unique_id,
                         "fqn": fqn,
                         "resource_type": resource_type,
+                        "depends_on": depends_on,
                     }
 
                     nodes.append(node_data)
@@ -239,8 +241,8 @@ class DbtManager:
 
                         unique_id = getattr(node, "unique_id", "unknown")
                         resource_type = str(getattr(node, "resource_type", "None"))
-                        fqn = getattr(node, "fqn", "unknown")
 
+                        # get the fqn for the node
                         fqn = None
                         if hasattr(node, "fqn") and node.fqn:
                             if isinstance(node.fqn, list):
@@ -248,10 +250,19 @@ class DbtManager:
                             else:
                                 fqn = str(node.fqn)
 
+                        # get the upstream node dependencies
+                        depends_on = []
+
+                        if hasattr(node, "depends_on") and hasattr(
+                            node.depends_on, "nodes"
+                        ):
+                            depends_on += node.depends_on.nodes
+
                         node_data = {
                             "unique_id": unique_id,
                             "fqn": fqn,
                             "resource_type": resource_type,
+                            "depends_on": depends_on,
                         }
                         nodes.append(node_data)
 
