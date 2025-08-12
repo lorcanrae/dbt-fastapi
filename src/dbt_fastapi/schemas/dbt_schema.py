@@ -2,6 +2,7 @@ from pydantic import BaseModel, StringConstraints, Field, model_validator
 from typing import Optional, Annotated, Literal, Any
 import shlex
 
+from enum import Enum
 
 # === Request Schemas ===
 
@@ -62,6 +63,35 @@ class DbtUnsafeRequest(BaseModel):
 # === Response Schemas ===
 
 
+class ResponseTestStatus(str, Enum):
+    """
+    Enum for test execution status.
+    Why doesn't python have enums as a native data structure?
+    """
+
+    PASS = "pass"
+    FAIL = "fail"
+    ERROR = "error"
+    SKIP = "skip"
+
+
+class DbtTestResult(BaseModel):
+    """
+    Detailed information for a single dbt test.
+    """
+
+    unique_id: str = Field(..., description="Test UID")
+    name: str = Field(..., description="Test name")
+    status: ResponseTestStatus = Field(..., description="Test execution status")
+    execution_time: Optional[float] = Field(
+        None, description="Test execution time in seconds"
+    )
+    message: Optional[str] = Field(None, description="Error message if the test failed")
+    failures: Optional[int] = Field(
+        None, description="Number of failing rows in the test"
+    )
+
+
 class DbtNode(BaseModel):
     """
     Represents a single dbt node with its key identifiers.
@@ -81,6 +111,11 @@ class DbtNode(BaseModel):
         default_factory=list, description="Upstream node dependencies."
     )
 
+    # Test specific field
+    test_result: Optional[DbtTestResult] = Field(
+        None, description="Test execution details"
+    )
+
 
 class DbtResponse(BaseModel):
     """
@@ -97,6 +132,12 @@ class DbtResponse(BaseModel):
     metadata: dict[str, Any] = Field(
         default_factory=list,
         description="Additional metadata about the executed dbt command.",
+    )
+
+    # Test specific
+    test_summary: Optional[dict[str, int]] = Field(
+        None,
+        description="Summary of test results: {total, passed, failed, errored, skipped}",
     )
 
 

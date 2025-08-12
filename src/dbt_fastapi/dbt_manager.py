@@ -17,6 +17,7 @@ from dbt_fastapi.exceptions import (
     create_target_selection_error,
     create_compilation_error,
 )
+from dbt_fastapi.schemas.dbt_schema import DbtTestResult, ResponseTestStatus
 
 
 class DbtManager:
@@ -264,9 +265,76 @@ class DbtManager:
                             "resource_type": resource_type,
                             "depends_on": depends_on,
                         }
+
+                        # Add test result details for test/build commands
+                        if (
+                            self.verb == "test" or self.verb == "build"
+                        ) and resource_type == "test":
+                            test_result = self._extract_test_result_from_run_result(
+                                run_result
+                            )
+                            if test_result:
+                                node_data["test_result"] = test_result.model_dump()
+
                         nodes.append(node_data)
 
         return nodes
+
+    def get_test_summary(self, result: dbtRunnerResult) -> dict[str, int] | None:
+        """
+        Extract test summary statistics from a dbt test command result.
+
+        Args:
+            result: The dbtRunnerResult from executing a dbt test command
+
+        Returns:
+            Dictionary with test counts by status, or None if not a test command
+        """
+        if self.verb not in ["test", "build"]:
+            return None
+
+        summary = {
+            "total": 0,
+            "passed": 0,
+            "warned": 0,
+            "failed": 0,
+            "errored": 0,
+            "skipped": 0,
+        }
+
+        if not hasattr(result, "result") or not hasattr(result.result, "results"):
+            return summary
+
+        try:
+            from dbt.contracts.results import TestStatus
+        except ImportError:
+            return summary
+
+        for run_result in result.result.results:
+            if (
+                hasattr(run_result, "node")
+                and str(getattr(run_result.node, "resource_type", "")) == "test"
+            ):
+                summary["total"] += 1
+
+                status = getattr(run_result, "status", None)
+
+                match status:
+                    case TestStatus.Pass:
+                        summary["passed"] += 1
+                    case TestStatus.Warn:
+                        summary["warned"] += 1
+                    case TestStatus.Skipped:
+                        summary["skipped"] += 1
+                    case TestStatus.Fail:
+                        summary["failed"] += 1
+                    case TestStatus.Error:
+                        summary["errored"] += 1
+                    case _:
+                        # handle unexpected
+                        summary["errored"] += 1
+
+        return summary
 
     # === Private Helpers ===
 
@@ -302,61 +370,6 @@ class DbtManager:
 
         return dbt_args
 
-    def _get_dbt_conf_files_paths(self) -> tuple[str, str]:
-        """
-        Locate and validate paths for dbt_project.yml and profiles.yml.
-
-        Returns:
-            A tuple of (profiles_dir, project_dir) as strings.
-
-        Raises:
-            DbtConfigurationError: If config files are missing or duplicated.
-        """
-        dbt_project_dir = os.environ.get("DBT_PROJECT_DIR")
-        dbt_profiles_dir = os.environ.get("DBT_PROFILES_DIR")
-
-        if dbt_profiles_dir and dbt_project_dir:
-            return dbt_profiles_dir, dbt_project_dir
-
-        # Discover dirs
-        dbt_project_yaml_dirs: list[Path] = []
-        profiles_yaml_dirs: list[Path] = []
-        selectors_yaml_dirs: list[Path] = []
-        search_paths: list[str] = []
-
-        # Find the parent dirs
-        for root, dirs, files in os.walk(PROJECT_ROOT):
-            dirs[:] = [d for d in dirs if d not in DbtManager.EXCLUDED_DIRS]
-            root_path = Path(root)
-            search_paths.append(str(root_path))
-
-            if "dbt_project.yml" in files:
-                dbt_project_yaml_dirs.append(root_path.resolve())
-            if "profiles.yml" in files:
-                profiles_yaml_dirs.append(root_path.resolve())
-            if self.selector_args and "selectors.yml" in files:
-                selectors_yaml_dirs.append(root_path.resolve())
-
-        # Validate configuration files using our custom exceptions
-        self._validate_config_files(
-            "dbt_project.yml", dbt_project_yaml_dirs, search_paths
-        )
-        self._validate_config_files("profiles.yml", profiles_yaml_dirs, search_paths)
-
-        # Validate selectors.yml if needed
-        if self.selector_args:
-            self._validate_config_files(
-                "selectors.yml", selectors_yaml_dirs, search_paths
-            )
-
-            # Ensure selectors.yml is at same level as dbt_project.yml
-            if selectors_yaml_dirs[0] != dbt_project_yaml_dirs[0]:
-                raise create_configuration_missing_error(
-                    "selectors.yml", [str(dbt_project_yaml_dirs[0])]
-                )
-
-        return str(profiles_yaml_dirs[0]), str(dbt_project_yaml_dirs[0])
-
     def _validate_dbt_result(self, result: dbtRunnerResult) -> None:
         """
         Validate dbt execution result and raise appropriate exceptions.
@@ -383,6 +396,12 @@ class DbtManager:
                 failed_models = self._extract_failed_models(result)
                 if failed_models:
                     raise create_compilation_error(failed_models)
+
+            # Early return for tests to not raise an exception
+            if (self.verb == "test" or self.verb == "build") and hasattr(
+                result.result, "results"
+            ):
+                return
 
             # Generic
             raise create_execution_failure_error(self.dbt_cli_args)
@@ -444,6 +463,108 @@ class DbtManager:
                 failed_models.append(model_info)
 
         return failed_models
+
+    def _extract_test_result_from_run_result(
+        self, run_result: Any
+    ) -> DbtTestResult | None:
+        """
+        Extract test result details from a single dbt run result.
+
+        Args:
+            run_result: A single run result from dbt execution
+
+        Returns:
+            DbtTestResult object with test execution details, or None if extraction fails
+        """
+        try:
+            from dbt.contracts.results import TestStatus
+        except ImportError:
+            return None
+
+        if not hasattr(run_result, "node") or not hasattr(run_result, "status"):
+            return None
+
+        # Map dbt status to enum
+        status_mapping = {
+            TestStatus.Pass: ResponseTestStatus.PASS,
+            TestStatus.Error: ResponseTestStatus.ERROR,
+            TestStatus.Fail: ResponseTestStatus.FAIL,
+            TestStatus.Skipped: ResponseTestStatus.SKIP,
+        }
+
+        dbt_status = getattr(run_result, "status", None)
+        api_status = status_mapping.get(dbt_status, ResponseTestStatus.ERROR)
+        node = run_result.node
+
+        return DbtTestResult(
+            unique_id=getattr(node, "unique_id", "unknown"),
+            name=getattr(node, "name", "unknown"),
+            status=api_status,
+            execution_time=getattr(run_result, "execution_time", None),
+            message=run_result.message
+            if api_status in [ResponseTestStatus.FAIL, ResponseTestStatus.ERROR]
+            else None,
+            failures=getattr(run_result, "failures", None)
+            if api_status == ResponseTestStatus.FAIL
+            else None,
+        )
+
+    # === dbt config file discovery and validation ===
+
+    def _get_dbt_conf_files_paths(self) -> tuple[str, str]:
+        """
+        Locate and validate paths for dbt_project.yml and profiles.yml.
+
+        Returns:
+            A tuple of (profiles_dir, project_dir) as strings.
+
+        Raises:
+            DbtConfigurationError: If config files are missing or duplicated.
+        """
+        dbt_project_dir = os.environ.get("DBT_PROJECT_DIR")
+        dbt_profiles_dir = os.environ.get("DBT_PROFILES_DIR")
+
+        if dbt_profiles_dir and dbt_project_dir:
+            return dbt_profiles_dir, dbt_project_dir
+
+        # Discover dirs
+        dbt_project_yaml_dirs: list[Path] = []
+        profiles_yaml_dirs: list[Path] = []
+        selectors_yaml_dirs: list[Path] = []
+        search_paths: list[str] = []
+
+        # Find the parent dirs
+        for root, dirs, files in os.walk(PROJECT_ROOT):
+            dirs[:] = [d for d in dirs if d not in DbtManager.EXCLUDED_DIRS]
+            root_path = Path(root)
+            search_paths.append(str(root_path))
+
+            if "dbt_project.yml" in files:
+                dbt_project_yaml_dirs.append(root_path.resolve())
+            if "profiles.yml" in files:
+                profiles_yaml_dirs.append(root_path.resolve())
+            if self.selector_args and "selectors.yml" in files:
+                selectors_yaml_dirs.append(root_path.resolve())
+
+        # Validate configuration files using our custom exceptions
+        self._validate_config_files(
+            "dbt_project.yml", dbt_project_yaml_dirs, search_paths
+        )
+        self._validate_config_files("profiles.yml", profiles_yaml_dirs, search_paths)
+
+        # Validate selectors.yml if needed
+        if self.selector_args:
+            self._validate_config_files(
+                "selectors.yml", selectors_yaml_dirs, search_paths
+            )
+
+            # Ensure selectors.yml is at same level as dbt_project.yml
+            if selectors_yaml_dirs[0] != dbt_project_yaml_dirs[0]:
+                raise create_configuration_missing_error(
+                    "selectors.yml", [str(dbt_project_yaml_dirs[0])]
+                )
+
+        return str(profiles_yaml_dirs[0]), str(dbt_project_yaml_dirs[0])
 
     def _validate_config_files(
         self, file_type: str, found_paths: list[Path], search_paths: list[str]
