@@ -129,6 +129,7 @@ class DbtResponse(BaseModel):
         default_factory=list,
         description="List of dbt nodes that were processed or matched the selection criteria",
     )
+    # TODO: This looks wrong
     metadata: dict[str, Any] = Field(
         default_factory=list,
         description="Additional metadata about the executed dbt command.",
