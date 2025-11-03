@@ -1,7 +1,6 @@
-"""Tests for clean exception design in dbt-fastapi wrapper."""
+"""Tests for clean exception design in dbt-fastapi wrapper - Updated for decoupled exceptions."""
 
 import pytest
-from fastapi import HTTPException
 from unittest.mock import Mock, patch
 
 from dbt.exceptions import (
@@ -162,7 +161,7 @@ class TestDbtExceptionTranslation:
 
 
 class TestDbtManagerWithCleanExceptions:
-    """Test DbtManager using the clean exception design."""
+    """Test DbtManager raises domain exceptions"""
 
     @patch("os.walk")
     def test_successful_execution_with_empty_results(self, mock_walk: Mock) -> None:
@@ -188,7 +187,7 @@ class TestDbtManagerWithCleanExceptions:
 
     @patch("os.walk")
     def test_execution_failure_handling(self, mock_walk: Mock) -> None:
-        """Test that execution failures are properly handled."""
+        """Test that execution failures raise DbtExecutionError (not HTTPException)."""
         # Mock config file discovery
         mock_walk.return_value = [("/project", [], ["dbt_project.yml", "profiles.yml"])]
 
@@ -198,16 +197,17 @@ class TestDbtManagerWithCleanExceptions:
         mock_result = Mock(success=False, exception=None, spec=["success", "exception"])
 
         with patch.object(manager.runner, "invoke", return_value=mock_result):
-            with pytest.raises(HTTPException) as exc_info:
+            # Should raise domain exception
+            with pytest.raises(DbtExecutionError) as exc_info:
                 manager.execute_dbt_command()
 
-            assert exc_info.value.status_code == 500
-            assert exc_info.value.detail["error"] == "DbtExecutionError"
-            assert "dbt command execution failed" in exc_info.value.detail["message"]
+            # Verify it's a domain exception
+            assert exc_info.value.http_status_code == 500
+            assert "dbt command execution failed" in exc_info.value.message
 
     @patch("os.walk")
     def test_dbt_exception_translation(self, mock_walk: Mock) -> None:
-        """Test that dbt exceptions are properly translated."""
+        """Test that dbt exceptions are properly translated to domain exceptions."""
         # Mock config file discovery
         mock_walk.return_value = [("/project", [], ["dbt_project.yml", "profiles.yml"])]
 
@@ -219,43 +219,46 @@ class TestDbtManagerWithCleanExceptions:
         )
 
         with patch.object(manager.runner, "invoke", side_effect=profile_error):
-            with pytest.raises(HTTPException) as exc_info:
+            # Should raise DbtTargetError (domain exception), not HTTPException
+            with pytest.raises(DbtTargetError) as exc_info:
                 manager.execute_dbt_command()
 
-            assert exc_info.value.status_code == 400
-            assert exc_info.value.detail["error"] == "DbtTargetError"
-            assert exc_info.value.detail["provided_target"] == "invalid_target"
-            assert "dev" in exc_info.value.detail["valid_targets"]
+            # Verify the domain exception details
+            assert exc_info.value.http_status_code == 400
+            assert exc_info.value.details["provided_target"] == "invalid_target"
+            assert "dev" in exc_info.value.details["valid_targets"]
 
     @patch("os.walk")
     def test_configuration_missing_error(self, mock_walk: Mock) -> None:
-        """Test that missing configuration files raise appropriate errors."""
+        """Test that missing configuration files raise DbtConfigurationError."""
         # Mock no dbt_project.yml found
         mock_walk.return_value = [("/root", [], ["other_file.txt"])]
 
-        with pytest.raises(HTTPException) as exc_info:
+        # Should raise domain exception during initialization
+        with pytest.raises(DbtConfigurationError) as exc_info:
             DbtManager(verb="run", target="dev")
 
-        assert exc_info.value.status_code == 400
-        assert exc_info.value.detail["error"] == "DbtConfigurationError"
-        assert "dbt_project.yml" in exc_info.value.detail["message"]
-        assert "not found" in exc_info.value.detail["message"]
+        # Verify it's a domain exception
+        assert exc_info.value.http_status_code == 400
+        assert "dbt_project.yml" in exc_info.value.message
+        assert "not found" in exc_info.value.message
 
     @patch("os.walk")
     def test_configuration_duplicate_error(self, mock_walk: Mock) -> None:
-        """Test that duplicate configuration files raise appropriate errors."""
+        """Test that duplicate configuration files raise DbtConfigurationError."""
         # Mock multiple dbt_project.yml files found
         mock_walk.return_value = [
             ("/root1", [], ["dbt_project.yml", "profiles.yml"]),
             ("/root2", [], ["dbt_project.yml"]),
         ]
 
-        with pytest.raises(HTTPException) as exc_info:
+        # Should raise domain exception during initialization
+        with pytest.raises(DbtConfigurationError) as exc_info:
             DbtManager(verb="run", target="dev")
 
-        assert exc_info.value.status_code == 400
-        assert exc_info.value.detail["error"] == "DbtConfigurationError"
-        assert "Multiple" in exc_info.value.detail["message"]
+        # Verify it's a domain exception
+        assert exc_info.value.http_status_code == 400
+        assert "Multiple" in exc_info.value.message
 
     def test_unsafe_command_exception_handling(self) -> None:
         """Test that unsafe commands handle exceptions properly."""
@@ -267,54 +270,17 @@ class TestDbtManagerWithCleanExceptions:
             parsing_error = ParsingError("Invalid YAML syntax")
             mock_runner.invoke.side_effect = parsing_error
 
-            with pytest.raises(HTTPException) as exc_info:
+            # Should raise DbtConfigurationError (domain exception)
+            with pytest.raises(DbtConfigurationError) as exc_info:
                 DbtManager.execute_unsafe_dbt_command(["dbt", "run"])
 
-            assert exc_info.value.status_code == 400
-            assert exc_info.value.detail["error"] == "DbtConfigurationError"
-            assert "Configuration parsing error" in exc_info.value.detail["message"]
+            # Verify it's a domain exception
+            assert exc_info.value.http_status_code == 400
+            assert "Configuration parsing error" in exc_info.value.message
 
 
 class TestNodeExtraction:
-    """Test the new unified node extraction functionality."""
-
-    # def test_get_nodes_from_list_result(self) -> None:
-    #     """Test node extraction from list command results."""
-    #     manager = Mock()
-
-    #     # Mock list result
-    #     mock_result = Mock()
-    #     mock_result.result = ["model.project.model1", "model.project.model2"]
-
-    #     from dbt_fastapi.dbt_manager import DbtManager
-
-    #     nodes = DbtManager.get_nodes_from_result(manager, mock_result)
-
-    #     assert nodes == ["model.project.model1", "model.project.model2"]
-
-    # def test_get_nodes_from_execution_result(self) -> None:
-    #     """Test node extraction from execution command results."""
-    #     manager = Mock()
-
-    #     # Mock execution result with run results
-    #     mock_result = Mock()
-    #     mock_result.result = Mock()
-
-    #     mock_run_result1 = Mock()
-    #     mock_run_result1.node = Mock()
-    #     mock_run_result1.node.unique_id = "model.project.model1"
-
-    #     mock_run_result2 = Mock()
-    #     mock_run_result2.node = Mock()
-    #     mock_run_result2.node.unique_id = "test.project.test1"
-
-    #     mock_result.result.results = [mock_run_result1, mock_run_result2]
-
-    #     from dbt_fastapi.dbt_manager import DbtManager
-
-    #     nodes = DbtManager.get_nodes_from_result(manager, mock_result)
-
-    #     assert nodes == ["model.project.model1", "test.project.test1"]
+    """Test the unified node extraction functionality."""
 
     def test_get_nodes_from_empty_result(self) -> None:
         """Test node extraction from empty results."""
@@ -421,3 +387,23 @@ class TestExceptionDesignBenefits:
         # Clear error hierarchy
         assert isinstance(translated, DbtExecutionError)
         assert isinstance(translated, DbtFastApiError)
+
+    def test_business_logic_is_http_agnostic(self) -> None:
+        """Test that DbtManager doesn't know about HTTP - critical for decoupling!"""
+        # This test verifies that DbtManager only raises domain exceptions
+        from dbt_fastapi.dbt_manager import DbtManager
+
+        # from fastapi import HTTPException
+        import inspect
+
+        # Get all methods in DbtManager
+        methods = inspect.getmembers(DbtManager, predicate=inspect.isfunction)
+
+        for method_name, method in methods:
+            source = inspect.getsource(method)
+
+            # Verify no HTTPException is raised in any method
+            assert "HTTPException" not in source, (
+                f"Method {method_name} contains HTTPException - "
+                "business logic should not know about HTTP!"
+            )
