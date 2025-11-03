@@ -4,12 +4,12 @@ from fastapi import status
 # Error hierarchy:
 #
 # DbtFastApiError (base)
-# ├── DbtValidationError
-# │   └── DbtTargetError
-# ├── DbtConfigurationError
-# ├── DbtCompilationError
-# ├── DbtExecutionError
-# └── DbtInternalError
+# ├── DbtValidationError    (400)
+# │   └── DbtTargetError    (400)
+# ├── DbtConfigurationError (400)
+# ├── DbtCompilationError   (400)
+# ├── DbtExecutionError     (500)
+# └── DbtInternalError      (500)
 
 
 class DbtFastApiError(Exception):
