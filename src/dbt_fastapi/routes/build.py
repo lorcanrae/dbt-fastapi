@@ -17,7 +17,7 @@ COMMAND = "build"
     summary=f"Execute 'dbt {COMMAND}'",
     response_model=DbtResponse,
 )
-async def run_dbt(
+def run_dbt(
     payload: DbtBuildListRequest,
 ) -> DbtResponse:
     """
@@ -26,7 +26,7 @@ async def run_dbt(
     Returns information about the nodes (models, tests, etc.) that were processed.
 
     Note: Endpoint returns 200 even when tests fail.
-    Check 'success' field' and 'test_summary' for actual test results.
+    Check fields: 'success' and 'test_summary' for actual test results.
     """
     dbt_manager = DbtManager(verb=COMMAND, **payload.model_dump())
 

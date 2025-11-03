@@ -17,7 +17,7 @@ COMMAND = "test"
     summary=f"Execute 'dbt {COMMAND}'",
     response_model=DbtResponse,
 )
-async def run_dbt(
+def run_dbt(
     payload: DbtRunTestCompileSeedSnapshotDocsRequest,
 ) -> DbtResponse:
     """

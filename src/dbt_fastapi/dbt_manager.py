@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any
 import json
 
-from fastapi import HTTPException
 from dbt.cli.main import dbtRunner, dbtRunnerResult
 
 from dbt_fastapi.params import PROJECT_ROOT
@@ -24,10 +23,12 @@ class DbtManager:
     """
     Manages the construction and execution of dbt commands using the dbt Python API.
 
-    This class follows clean architecture principles by:
+    Guiding principles:
     - Using domain-specific exceptions instead of dbt's internal exceptions
-    - Translating dbt errors into application-specific errors
     - Providing clear separation between dbt concerns and API concerns
+
+    All exceptions raised from this class are DbtFastApiError or its subclasses,
+    which are then converted to HTTP responses by FastAPI exception handlers.
     """
 
     EXCLUDED_DIRS = [
@@ -58,6 +59,10 @@ class DbtManager:
             exclude_args: Optional dbt --exclude argument.
             selector_args: Optional dbt --selector argument.
             resource_type: Currently unused; reserved for future support.
+
+        Raises:
+            DbtConfigurationError: If configuration files are missing or invalid
+            DbtFastApiError: For other initialization errors
         """
         self.verb: str = verb
         self.target: str = target
@@ -65,28 +70,30 @@ class DbtManager:
         self.exclude_args: list[str] = exclude_args.split() if exclude_args else []
         self.selector_args: list[str] = selector_args.split() if selector_args else []
 
-        # Raise custom exceptions if needed.
-        try:
-            self.profiles_yaml_dir, self.dbt_project_yaml_dir = (
-                self._get_dbt_conf_files_paths()
-            )
-            self.dbt_cli_args: list[str] = self._generate_dbt_args()
-            self.runner = dbtRunner()
-        except DbtFastApiError as e:
-            raise HTTPException(
-                status_code=e.http_status_code,
-                detail={"error": type(e).__name__, "message": e.message, **e.details},
-            )
+        # Discover configuration paths (may raise DbtConfigruationError)
+        self.profiles_yaml_dir, self.dbt_project_yaml_dir = (
+            self._get_dbt_conf_files_paths()
+        )
 
-    def execute_dbt_command(self) -> str:
+        # Build CLI args
+        self.dbt_cli_args: list[str] = self._generate_dbt_args()
+
+        # Initialize dbt runner
+        self.runner = dbtRunner()
+
+    def execute_dbt_command(self) -> dbtRunnerResult:
         """
         Run the dbt command using the Python API and return its output.
 
         Raises:
-            HTTPException: If the dbt command fails or configuration is invalid.
+            DbtTargetError: If an invalid target is specified
+            DbtCompilationError: If models fail to compile
+            DbtExecutionError: If dbt command execution fails
+            DbtConfigurationError: If configuration is invalid
+            DbtInternalError: For unexpected errors
 
         Returns:
-            Formatted output from dbt execution.
+            dbtRunnerResult from dbt execution
         """
         try:
             # Execute using dbt Python API
@@ -97,19 +104,13 @@ class DbtManager:
 
             return result
 
-        except DbtFastApiError as e:
-            # Our custom exceptions - convert to HTTP exceptions
-            raise HTTPException(
-                status_code=e.http_status_code,
-                detail={
-                    "error": type(e).__name__,
-                    "message": e.message,
-                    **e.details,
-                },
-            )
+        except DbtFastApiError:
+            # Custom error
+            # FastAPI exception handler will convert to HTTP response
+            raise
 
         except Exception as dbt_exception:
-            # Catch all
+            # Translate dbt's internal exceptions to domain exceptions
             context = {
                 "target": self.target,
                 "command": self.dbt_cli_args,
@@ -118,38 +119,32 @@ class DbtManager:
             }
 
             app_exception = translate_dbt_exception(dbt_exception, context)
+            raise app_exception
 
-            raise HTTPException(
-                status_code=app_exception.http_status_code,
-                detail={
-                    "error": type(app_exception).__name__,
-                    "message": app_exception.message,
-                    **app_exception.details,
-                },
-            )
-
-    async def async_execute_dbt_command(self) -> str:
+    async def async_execute_dbt_command(self) -> dbtRunnerResult:
         """
         Placeholder for future async execution support.
 
         Raises:
-            NotImplementedError: This method is not yet implemented.
+            NotImplementedError: This method is not yet implemented
         """
         raise NotImplementedError("Async dbt execution is not yet implemented.")
 
     @classmethod
-    def execute_unsafe_dbt_command(cls, cli_command: list[str]) -> str:
+    def execute_unsafe_dbt_command(cls, cli_command: list[str]) -> dbtRunnerResult:
         """
         Execute a raw dbt CLI command using the Python API.
 
         Args:
-            cli_command: A list representing the full dbt CLI command.
+            cli_command: A list representing the full dbt CLI command
 
         Raises:
-            HTTPException: On execution failure or invalid configuration.
+            DbtExecutionError: On execution failure
+            DbtConfigurationError: On invalid configuration
+            DbtInternalError: Unexpected errors
 
         Returns:
-            Formatted output.
+            dbtRunnerResult from dbt execution
         """
         try:
             runner = dbtRunner()
@@ -164,33 +159,21 @@ class DbtManager:
 
             return result
 
-        except DbtFastApiError as e:
-            # Our custom exceptions
-            raise HTTPException(
-                status_code=e.http_status_code,
-                detail={
-                    "error": type(e).__name__,
-                    "message": e.message,
-                    **e.details,
-                },
-            )
+        except DbtFastApiError:
+            # Custom error
+            # FastAPI exception handler will convert to HTTP response
+            raise
 
         except Exception as dbt_exception:
-            # Translate dbt exceptions
+            # Translate dbt's internal exceptions to domain exceptions
             context = {"command": cli_command}
             app_exception = translate_dbt_exception(dbt_exception, context)
-
-            raise HTTPException(
-                status_code=app_exception.http_status_code,
-                detail={
-                    "error": type(app_exception).__name__,
-                    "message": app_exception.message,
-                    **app_exception.details,
-                },
-            )
+            raise app_exception
 
     @classmethod
-    async def async_execute_unsafe_dbt_command(cls, cli_command: list[str]) -> str:
+    async def async_execute_unsafe_dbt_command(
+        cls, cli_command: list[str]
+    ) -> dbtRunnerResult:
         """
         Placeholder for future async execution support.
 
@@ -199,17 +182,17 @@ class DbtManager:
         """
         raise NotImplementedError("Async dbt execution is not yet implemented.")
 
-    def get_nodes_from_result(self, result: dbtRunnerResult) -> list[str]:
+    def get_nodes_from_result(self, result: dbtRunnerResult) -> list[dict[str, Any]]:
         """
         Extract node names from any dbt command result.
 
         This works for both 'list' commands and execution commands like 'run', 'test', 'build'.
 
         Args:
-            result: The dbtRunnerResult from executing a dbt command
+            result: dbtRunnerResult from executing a dbt command
 
         Returns:
-            List of node names/identifiers
+            List of node dictionaries with metadata
         """
         nodes: list[dict[str]] = []
 
@@ -285,7 +268,7 @@ class DbtManager:
         Extract test summary statistics from a dbt test command result.
 
         Args:
-            result: The dbtRunnerResult from executing a dbt test command
+            result: dbtRunnerResult from executing a dbt test command
 
         Returns:
             Dictionary with test counts by status, or None if not a test command
@@ -495,18 +478,24 @@ class DbtManager:
         dbt_status = getattr(run_result, "status", None)
         api_status = status_mapping.get(dbt_status, ResponseTestStatus.ERROR)
         node = run_result.node
+        message = (
+            run_result.message
+            if api_status in [ResponseTestStatus.FAIL, ResponseTestStatus.ERROR]
+            else None
+        )
+        failures = (
+            getattr(run_result, "failuers", None)
+            if api_status == ResponseTestStatus.FAIL
+            else None
+        )
 
         return DbtTestResult(
             unique_id=getattr(node, "unique_id", "unknown"),
             name=getattr(node, "name", "unknown"),
             status=api_status,
             execution_time=getattr(run_result, "execution_time", None),
-            message=run_result.message
-            if api_status in [ResponseTestStatus.FAIL, ResponseTestStatus.ERROR]
-            else None,
-            failures=getattr(run_result, "failures", None)
-            if api_status == ResponseTestStatus.FAIL
-            else None,
+            message=message,
+            failures=failures,
         )
 
     # === dbt config file discovery and validation ===

@@ -17,7 +17,7 @@ COMMAND = "unsafe"
     f"/{COMMAND}",
     summary="Execute arbitrary dbt command. Requires the entire dbt CLI command to be executed. Limited error handling.",
 )
-async def run_dbt(
+def run_dbt(
     payload: DbtUnsafeRequest,
 ) -> DbtCommandResponse:
     shlex_list_cli = shlex.split(payload.unsafe_dbt_cli_command)
