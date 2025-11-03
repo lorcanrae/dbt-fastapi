@@ -17,7 +17,7 @@ COMMAND = "run"
     f"/{COMMAND}",
     summary=f"Execute 'dbt {COMMAND}'",
 )
-async def run_dbt(
+def run_dbt(
     payload: DbtRunTestCompileSeedSnapshotDocsRequest,
 ) -> DbtResponse:
     dbt_manager = DbtManager(verb=COMMAND, **payload.model_dump())

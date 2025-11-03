@@ -16,7 +16,7 @@ COMMAND = "list"
     summary=f"Execute 'dbt {COMMAND}' to get filtered list of nodes",
     response_model=DbtResponse,
 )
-async def list_dbt_nodes(
+def list_dbt_nodes(
     payload: DbtBuildListRequest,
 ) -> DbtResponse:
     """
