@@ -66,7 +66,7 @@ class DbtUnsafeRequest(BaseModel):
 class ResponseTestStatus(str, Enum):
     """
     Enum for test execution status.
-    Why doesn't python have enums as a native data structure?
+    Why aren't enums used more widely in python? Missed opportunity imo.
     """
 
     PASS = "pass"
@@ -129,9 +129,8 @@ class DbtResponse(BaseModel):
         default_factory=list,
         description="List of dbt nodes that were processed or matched the selection criteria",
     )
-    # TODO: This looks wrong
     metadata: dict[str, Any] = Field(
-        default_factory=list,
+        default_factory=dict,
         description="Additional metadata about the executed dbt command.",
     )
 
