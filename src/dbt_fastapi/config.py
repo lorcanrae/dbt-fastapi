@@ -1,7 +1,7 @@
 """
 Configuration management for dbt-fastapi.
 
-This module handles discovery and caching of dbt configuration paths.
+Handles the discovery and caching of dbt configuration paths.
 Configuration is discovered once at application startup and cached for reuse
 across all requests.
 
@@ -26,6 +26,7 @@ from dbt_fastapi.exceptions import (
     create_configuration_missing_error,
     create_configuration_duplicate_error,
 )
+from dbt_fastapi.params import PROJECT_ROOT
 
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ class DbtConfig(BaseSettings):
     2. .env file
     3. Automatic discovery (fallback)
 
-    For containerised runtime deployment, set these environment variables:
+    For Cloud Run deployment, set these environment variables:
     - DBT_PROFILES_DIR: Path to directory containing profiles.yml
     - DBT_PROJECT_DIR: Path to directory containing dbt_project.yml
     """
@@ -156,8 +157,7 @@ def _discover_config_file(filename: str, file_type: str) -> str:
     Search strategy (in order):
     1. Current working directory
     2. Common project locations
-    3. Parent directories (up to 3 levels)
-    4. Limited filesystem walk (excluded common dirs)
+    3. Limited filesystem walk (excluded common dirs)
 
     Args:
         filename: Name of file to find (e.g., "profiles.yml")
@@ -169,8 +169,6 @@ def _discover_config_file(filename: str, file_type: str) -> str:
     Raises:
         DbtConfigurationError: If file not found or duplicates exist
     """
-    from dbt_fastapi.params import PROJECT_ROOT
-
     EXCLUDED_DIRS = {
         ".venv",
         ".git",
@@ -186,35 +184,28 @@ def _discover_config_file(filename: str, file_type: str) -> str:
         "env",
     }
 
-    # Strategy 1: Check current working directory first
     cwd = Path.cwd()
+    # Strategy 1: Check current working directory first
     if (cwd / filename).exists():
         logger.debug(f"Found {filename} in current directory: {cwd}")
         return str(cwd)
 
     # Strategy 2: Check common locations
-    common_locations = [
-        Path.cwd() / "placeholder_dbt_project",
-        Path(__file__).parent.parent.parent / "placeholder_dbt_project",
-        PROJECT_ROOT / "placeholder_dbt_project",
-    ]
+    dbt_project_name = os.getenv("DBT_PROJECT_NAME", None)
 
-    for location in common_locations:
-        if location.exists() and (location / filename).exists():
-            logger.debug(f"Found {filename} in common location: {location}")
-            return str(location.resolve())
+    if dbt_project_name:
+        common_locations = [
+            PROJECT_ROOT / dbt_project_name,
+            cwd / dbt_project_name,
+            Path(__file__).parent.parent.parent / dbt_project_name,
+        ]
 
-    # Strategy 3: Check parent directories (limited depth)
-    current = cwd
-    for _ in range(3):  # Check up to 3 parent directories
-        if (current / filename).exists():
-            logger.debug(f"Found {filename} in parent directory: {current}")
-            return str(current)
-        current = current.parent
-        if current == current.parent:  # Reached filesystem root
-            break
+        for location in common_locations:
+            if location.exists() and (location / filename).exists():
+                logger.debug(f"Found {filename} in common location: {location}")
+                return str(location.resolve())
 
-    # Strategy 4: Limited filesystem walk (last resort)
+    # Strategy 3: Limited filesystem walk (last resort)
     logger.debug(f"Performing limited filesystem walk to find {filename}...")
     found_paths: list[Path] = []
     search_paths: list[str] = []
@@ -321,8 +312,8 @@ def reset_dbt_config() -> None:
     """
     Reset the cached configuration.
 
-    This function is primarily for testing purposes, allowing tests
-    to reset the configuration state between test runs.
+    For testing purposes, allowing tests to reset
+    configuration state between test runs.
     """
     global _config
     _config = None
