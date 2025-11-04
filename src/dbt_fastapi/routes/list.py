@@ -1,6 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from dbt_fastapi.dbt_manager import DbtManager
+from dbt_fastapi.config import DbtConfig, get_dbt_config
 from dbt_fastapi.schemas.dbt_schema import (
     DbtBuildListRequest,
     DbtResponse,
@@ -18,6 +19,7 @@ COMMAND = "list"
 )
 def list_dbt_nodes(
     payload: DbtBuildListRequest,
+    config: DbtConfig = Depends(get_dbt_config),
 ) -> DbtResponse:
     """
     List dbt nodes based on selection criteria.
@@ -25,8 +27,15 @@ def list_dbt_nodes(
     Returns a list of nodes that match the provided selection,
     exclusion, and selector arguments.
     """
-    dbt_manager = DbtManager(verb=COMMAND, **payload.model_dump())
-
+    dbt_manager = DbtManager(
+        verb=COMMAND,
+        target=payload.target,
+        profiles_dir=config.dbt_profiles_dir,
+        project_dir=config.dbt_project_dir,
+        select_args=payload.select_args,
+        exclude_args=payload.exclude_args,
+        selector_args=payload.selector_args,
+    )
     # Execute dbt command
     result = dbt_manager.execute_dbt_command()
 
