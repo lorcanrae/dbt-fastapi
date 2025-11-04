@@ -37,13 +37,9 @@ class DbtConfig(BaseSettings):
     dbt configuration settings with automatic discovery and validation.
 
     Settings are loaded from:
-    1. Environment variables (highest priority)
+    1. Environment variables (DBT_PROFILES_DIR, DBT_PROJECT_DIR)
     2. .env file
-    3. Automatic discovery (fallback)
-
-    For Cloud Run deployment, set these environment variables:
-    - DBT_PROFILES_DIR: Path to directory containing profiles.yml
-    - DBT_PROJECT_DIR: Path to directory containing dbt_project.yml
+    3. Automatic discovery (fallback for local deployment)
     """
 
     model_config = SettingsConfigDict(
