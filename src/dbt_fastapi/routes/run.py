@@ -23,7 +23,7 @@ def run_dbt(
 ) -> DbtResponse:
     dbt_manager = DbtManager(
         verb=COMMAND,
-        target=payload.target,
+        target=payload.target or config.dbt_target_default,
         profiles_dir=config.dbt_profiles_dir,
         project_dir=config.dbt_project_dir,
         select_args=payload.select_args,
