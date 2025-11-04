@@ -91,39 +91,13 @@ class DbtConfig(BaseSettings):
         """
         if not self.dbt_profiles_dir:
             logger.info("DBT_PROFILES_DIR not set, discovering profiles.yml...")
-            self.dbt_profiles_dir = self._discover_profiles_dir()
+            self.dbt_profiles_dir = _discover_config_file("profiles.yml")
             logger.info(f"Discovered profiles.yml at: {self.dbt_profiles_dir}")
 
         if not self.dbt_project_dir:
             logger.info("DBT_PROJECT_DIR not set, discovering dbt_project.yml...")
-            self.dbt_project_dir = self._discover_project_dir()
+            self.dbt_project_dir = _discover_config_file("dbt_project.yml")
             logger.info(f"Discovered dbt_project.yml at: {self.dbt_project_dir}")
-
-    def _discover_profiles_dir(self) -> str:
-        """
-        Discover the directory containing profiles.yml.
-
-        Returns:
-            Path to directory containing profiles.yml
-
-        Raises:
-            DbtConfigurationError: If profiles.yml not found or duplicates exist
-        """
-        return _discover_config_file(filename="profiles.yml", file_type="profiles.yml")
-
-    def _discover_project_dir(self) -> str:
-        """
-        Discover the directory containing dbt_project.yml.
-
-        Returns:
-            Path to directory containing dbt_project.yml
-
-        Raises:
-            DbtConfigurationError: If dbt_project.yml not found or duplicates exist
-        """
-        return _discover_config_file(
-            filename="dbt_project.yml", file_type="dbt_project.yml"
-        )
 
     def validate_configuration(self) -> None:
         """
@@ -150,7 +124,7 @@ class DbtConfig(BaseSettings):
         logger.info("dbt configuration validated successfully")
 
 
-def _discover_config_file(filename: str, file_type: str) -> str:
+def _discover_config_file(filename: str) -> str:
     """
     Discover a dbt configuration file.
 
@@ -160,8 +134,7 @@ def _discover_config_file(filename: str, file_type: str) -> str:
     3. Limited filesystem walk (excluded common dirs)
 
     Args:
-        filename: Name of file to find (e.g., "profiles.yml")
-        file_type: Type of file for error messages
+        filename: Name of file to find (e.g., "profiles.yml", "dbt_project.yml")
 
     Returns:
         Path to directory containing the file
@@ -223,13 +196,13 @@ def _discover_config_file(filename: str, file_type: str) -> str:
 
     # Validate results
     if len(found_paths) == 0:
-        logger.error(f"{file_type} not found in any searched paths")
-        raise create_configuration_missing_error(file_type, search_paths)
+        logger.error(f"{filename} not found in any searched paths")
+        raise create_configuration_missing_error(filename, search_paths)
 
     if len(found_paths) > 1:
-        logger.error(f"Multiple {file_type} files found")
+        logger.error(f"Multiple {filename} files found")
         raise create_configuration_duplicate_error(
-            file_type, [str(path) for path in found_paths]
+            filename, [str(path) for path in found_paths]
         )
 
     logger.info(f"Found {filename} at: {found_paths[0]}")
