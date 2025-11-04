@@ -32,6 +32,22 @@ from dbt_fastapi.params import PROJECT_ROOT
 logger = logging.getLogger(__name__)
 
 
+EXCLUDED_DIRS = {
+    ".venv",
+    ".git",
+    "__pycache__",
+    ".pytest_cache",
+    "logs",
+    "dbt_internal_packages",
+    "node_modules",
+    "target",
+    "dbt_packages",
+    ".tox",
+    "venv",
+    "env",
+}
+
+
 class DbtConfig(BaseSettings):
     """
     dbt configuration settings with automatic discovery and validation.
@@ -87,12 +103,12 @@ class DbtConfig(BaseSettings):
         """
         if not self.dbt_profiles_dir:
             logger.info("DBT_PROFILES_DIR not set, discovering profiles.yml...")
-            self.dbt_profiles_dir = _discover_config_file("profiles.yml")
+            self.dbt_profiles_dir = _discover_config_dir("profiles.yml")
             logger.info(f"Discovered profiles.yml at: {self.dbt_profiles_dir}")
 
         if not self.dbt_project_dir:
             logger.info("DBT_PROJECT_DIR not set, discovering dbt_project.yml...")
-            self.dbt_project_dir = _discover_config_file("dbt_project.yml")
+            self.dbt_project_dir = _discover_config_dir("dbt_project.yml")
             logger.info(f"Discovered dbt_project.yml at: {self.dbt_project_dir}")
 
     def validate_configuration(self) -> None:
@@ -120,7 +136,7 @@ class DbtConfig(BaseSettings):
         logger.info("dbt configuration validated successfully")
 
 
-def _discover_config_file(filename: str) -> str:
+def _discover_config_dir(filename: str) -> str:
     """
     Discover a dbt configuration file.
 
@@ -138,20 +154,6 @@ def _discover_config_file(filename: str) -> str:
     Raises:
         DbtConfigurationError: If file not found or duplicates exist
     """
-    EXCLUDED_DIRS = {
-        ".venv",
-        ".git",
-        "__pycache__",
-        ".pytest_cache",
-        "logs",
-        "dbt_internal_packages",
-        "node_modules",
-        "target",
-        "dbt_packages",
-        ".tox",
-        "venv",
-        "env",
-    }
 
     cwd = Path.cwd()
     # Strategy 1: Check current working directory first
