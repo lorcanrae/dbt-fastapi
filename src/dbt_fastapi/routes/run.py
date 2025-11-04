@@ -1,7 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from dbt_fastapi.dbt_manager import DbtManager
-
+from dbt_fastapi.config import DbtConfig, get_dbt_config
 from dbt_fastapi.schemas.dbt_schema import (
     DbtRunTestCompileSeedSnapshotDocsRequest,
     DbtResponse,
@@ -19,8 +19,17 @@ COMMAND = "run"
 )
 def run_dbt(
     payload: DbtRunTestCompileSeedSnapshotDocsRequest,
+    config: DbtConfig = Depends(get_dbt_config),
 ) -> DbtResponse:
-    dbt_manager = DbtManager(verb=COMMAND, **payload.model_dump())
+    dbt_manager = DbtManager(
+        verb=COMMAND,
+        target=payload.target or config.dbt_target_default,
+        profiles_dir=config.dbt_profiles_dir,
+        project_dir=config.dbt_project_dir,
+        select_args=payload.select_args,
+        exclude_args=payload.exclude_args,
+        selector_args=payload.selector_args,
+    )
 
     # Execute dbt command
     result = dbt_manager.execute_dbt_command()

@@ -1,18 +1,13 @@
-import os
 import re
-from pathlib import Path
 from typing import Any
 import json
 
 from dbt.cli.main import dbtRunner, dbtRunnerResult
 
-from dbt_fastapi.params import PROJECT_ROOT
 from dbt_fastapi.exceptions import (
     DbtFastApiError,
     translate_dbt_exception,
     create_execution_failure_error,
-    create_configuration_missing_error,
-    create_configuration_duplicate_error,
     create_target_selection_error,
     create_compilation_error,
 )
@@ -25,25 +20,20 @@ class DbtManager:
 
     Guiding principles:
     - Using domain-specific exceptions instead of dbt's internal exceptions
+    - De-coupled from the HTTP layer
+    - Accept configuration via dependency injection
     - Providing clear separation between dbt concerns and API concerns
 
     All exceptions raised from this class are DbtFastApiError or its subclasses,
     which are then converted to HTTP responses by FastAPI exception handlers.
     """
 
-    EXCLUDED_DIRS = [
-        ".venv",
-        ".git",
-        "__pycache__",
-        ".pytest_cache",
-        "logs",
-        "dbt_internal_packages",
-    ]
-
     def __init__(
         self,
         verb: str,
         target: str,
+        profiles_dir: str,
+        project_dir: str,
         select_args: str | None = None,
         exclude_args: str | None = None,
         selector_args: str | None = None,
@@ -70,10 +60,8 @@ class DbtManager:
         self.exclude_args: list[str] = exclude_args.split() if exclude_args else []
         self.selector_args: list[str] = selector_args.split() if selector_args else []
 
-        # Discover configuration paths (may raise DbtConfigruationError)
-        self.profiles_yaml_dir, self.dbt_project_yaml_dir = (
-            self._get_dbt_conf_files_paths()
-        )
+        self.profiles_yaml_dir: str = profiles_dir
+        self.dbt_project_yaml_dir: str = project_dir
 
         # Build CLI args
         self.dbt_cli_args: list[str] = self._generate_dbt_args()
@@ -497,84 +485,6 @@ class DbtManager:
             message=message,
             failures=failures,
         )
-
-    # === dbt config file discovery and validation ===
-
-    def _get_dbt_conf_files_paths(self) -> tuple[str, str]:
-        """
-        Locate and validate paths for dbt_project.yml and profiles.yml.
-
-        Returns:
-            A tuple of (profiles_dir, project_dir) as strings.
-
-        Raises:
-            DbtConfigurationError: If config files are missing or duplicated.
-        """
-        dbt_project_dir = os.environ.get("DBT_PROJECT_DIR")
-        dbt_profiles_dir = os.environ.get("DBT_PROFILES_DIR")
-
-        if dbt_profiles_dir and dbt_project_dir:
-            return dbt_profiles_dir, dbt_project_dir
-
-        # Discover dirs
-        dbt_project_yaml_dirs: list[Path] = []
-        profiles_yaml_dirs: list[Path] = []
-        selectors_yaml_dirs: list[Path] = []
-        search_paths: list[str] = []
-
-        # Find the parent dirs
-        for root, dirs, files in os.walk(PROJECT_ROOT):
-            dirs[:] = [d for d in dirs if d not in DbtManager.EXCLUDED_DIRS]
-            root_path = Path(root)
-            search_paths.append(str(root_path))
-
-            if "dbt_project.yml" in files:
-                dbt_project_yaml_dirs.append(root_path.resolve())
-            if "profiles.yml" in files:
-                profiles_yaml_dirs.append(root_path.resolve())
-            if self.selector_args and "selectors.yml" in files:
-                selectors_yaml_dirs.append(root_path.resolve())
-
-        # Validate configuration files using our custom exceptions
-        self._validate_config_files(
-            "dbt_project.yml", dbt_project_yaml_dirs, search_paths
-        )
-        self._validate_config_files("profiles.yml", profiles_yaml_dirs, search_paths)
-
-        # Validate selectors.yml if needed
-        if self.selector_args:
-            self._validate_config_files(
-                "selectors.yml", selectors_yaml_dirs, search_paths
-            )
-
-            # Ensure selectors.yml is at same level as dbt_project.yml
-            if selectors_yaml_dirs[0] != dbt_project_yaml_dirs[0]:
-                raise create_configuration_missing_error(
-                    "selectors.yml", [str(dbt_project_yaml_dirs[0])]
-                )
-
-        return str(profiles_yaml_dirs[0]), str(dbt_project_yaml_dirs[0])
-
-    def _validate_config_files(
-        self, file_type: str, found_paths: list[Path], search_paths: list[str]
-    ) -> None:
-        """
-        Validate that exactly one config file of the given type was found.
-
-        Args:
-            file_type: The name of the file (e.g., dbt_project.yml).
-            found_paths: List of paths where the file was found.
-            search_paths: List of all paths that were searched.
-
-        Raises:
-            DbtConfigurationError: If none or more than one copy found.
-        """
-        if len(found_paths) == 0:
-            raise create_configuration_missing_error(file_type, search_paths)
-        elif len(found_paths) > 1:
-            raise create_configuration_duplicate_error(
-                file_type, [str(path) for path in found_paths]
-            )
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from dbt_fastapi.dbt_manager import DbtManager
+from dbt_fastapi.config import DbtConfig, get_dbt_config
 from dbt_fastapi.schemas.dbt_schema import (
     DbtBuildListRequest,
     DbtResponse,
@@ -19,6 +20,7 @@ COMMAND = "build"
 )
 def run_dbt(
     payload: DbtBuildListRequest,
+    config: DbtConfig = Depends(get_dbt_config),
 ) -> DbtResponse:
     """
     Execute dbt build command.
@@ -28,7 +30,15 @@ def run_dbt(
     Note: Endpoint returns 200 even when tests fail.
     Check fields: 'success' and 'test_summary' for actual test results.
     """
-    dbt_manager = DbtManager(verb=COMMAND, **payload.model_dump())
+    dbt_manager = DbtManager(
+        verb=COMMAND,
+        target=payload.target or config.dbt_target_default,
+        profiles_dir=config.dbt_profiles_dir,
+        project_dir=config.dbt_project_dir,
+        select_args=payload.select_args,
+        exclude_args=payload.exclude_args,
+        selector_args=payload.selector_args,
+    )
 
     # Execute dbt command
     result = dbt_manager.execute_dbt_command()
@@ -39,7 +49,7 @@ def run_dbt(
     # Extract test sumary
     test_summary = dbt_manager.get_test_summary(result)
 
-    print(test_summary)
+    # print(test_summary)
 
     metadata = {
         "command": COMMAND,
