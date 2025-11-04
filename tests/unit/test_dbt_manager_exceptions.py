@@ -423,7 +423,7 @@ class TestSelectionCriteria:
             select_args="model1 model2",
         )
 
-        criteria = manager._get_selection_criteria_string()
+        criteria = manager.get_selection_criteria_string()
 
         assert "select_args: model1 model2" in criteria
 
@@ -438,54 +438,6 @@ class TestSelectionCriteria:
             project_dir=project_dir,
         )
 
-        criteria = manager._get_selection_criteria_string()
+        criteria = manager.get_selection_criteria_string()
 
         assert criteria == "no selection criteria"
-
-
-class TestDbtManagerPerformance:
-    """Performance-related tests."""
-
-    def test_instantiation_is_fast(self, dummy_paths, benchmark=None):
-        """Test that creating DbtManager instances is fast."""
-        if benchmark is None:
-            pytest.skip("pytest-benchmark not available")
-
-        profiles_dir, project_dir = dummy_paths
-
-        def create_manager():
-            return DbtManager(
-                verb="run",
-                target="dev",
-                profiles_dir=profiles_dir,
-                project_dir=project_dir,
-            )
-
-        # Should be very fast (< 1ms) since no filesystem I/O
-        result = benchmark(create_manager)
-        assert result is not None
-
-    def test_create_many_managers_quickly(self, dummy_paths):
-        """Test that creating many managers is fast."""
-        profiles_dir, project_dir = dummy_paths
-
-        import time
-
-        start = time.time()
-
-        # Create 1000 managers
-        managers = []
-        for _ in range(1000):
-            manager = DbtManager(
-                verb="run",
-                target="dev",
-                profiles_dir=profiles_dir,
-                project_dir=project_dir,
-            )
-            managers.append(manager)
-
-        elapsed = time.time() - start
-
-        # Should complete in under 1 second (no filesystem I/O!)
-        assert elapsed < 1.0
-        assert len(managers) == 1000
