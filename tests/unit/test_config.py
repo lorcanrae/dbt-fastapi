@@ -303,7 +303,7 @@ class TestDiscoverConfigFileFunction:
         (tmp_path / "profiles.yml").write_text("test: {}")
 
         with patch("dbt_fastapi.config.PROJECT_ROOT", tmp_path):
-            result = _discover_config_file("profiles.yml", "profiles.yml")
+            result = _discover_config_file("profiles.yml")
 
         assert result == str(tmp_path)
 
@@ -315,7 +315,7 @@ class TestDiscoverConfigFileFunction:
         (project_dir / "profiles.yml").write_text("test: {}")
 
         with patch("dbt_fastapi.config.PROJECT_ROOT", tmp_path):
-            result = _discover_config_file("profiles.yml", "profiles.yml")
+            result = _discover_config_file("profiles.yml")
 
         assert result == str(project_dir)
 
@@ -332,7 +332,7 @@ class TestDiscoverConfigFileFunction:
         monkeypatch.chdir(child_dir)
 
         with patch("dbt_fastapi.config.PROJECT_ROOT", tmp_path):
-            result = _discover_config_file("profiles.yml", "profiles.yml")
+            result = _discover_config_file("profiles.yml")
 
         assert result == str(tmp_path)
 
