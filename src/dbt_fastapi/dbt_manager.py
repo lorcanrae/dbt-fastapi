@@ -11,7 +11,7 @@ from dbt_fastapi.exceptions import (
     translate_dbt_exception,
     create_compilation_error,
 )
-from dbt_fastapi.schemas.dbt_schema import DbtTestResult, ResponseTestStatus
+from dbt_fastapi.schemas.dbt_schema import DbtTestResult, ResponseTestStatus, DbtNode
 
 
 class DbtManager:
@@ -170,7 +170,7 @@ class DbtManager:
         """
         raise NotImplementedError("Async dbt execution is not yet implemented.")
 
-    def get_nodes_from_result(self, result: dbtRunnerResult) -> list[dict[str, Any]]:
+    def get_nodes_from_result(self, result: dbtRunnerResult) -> list[DbtNode]:
         """
         Extract node names from any dbt command result.
 
@@ -191,28 +191,20 @@ class DbtManager:
                 new_result = [json.loads(json_string) for json_string in result.result]
 
                 for node in new_result:
-                    unique_id = node["unique_id"]
-                    resource_type = node["resource_type"]
-                    fqn = node["alias"]  # good enough
-                    depends_on = node["depends_on"].get("nodes")
-
-                    node_data = {
-                        "unique_id": unique_id,
-                        "fqn": fqn,
-                        "resource_type": resource_type,
-                        "depends_on": depends_on,
-                    }
-
-                    nodes.append(node_data)
+                    nodes.append(
+                        DbtNode(
+                            unique_id=node["unique_id"],
+                            fqn=node["alias"],
+                            resource_type=node["resource_type"],
+                            depends_on=node["depends_on"].get("nodes", []),
+                        )
+                    )
 
             # literally every other command
             elif hasattr(result.result, "results"):
                 for run_result in result.result.results:
                     if hasattr(run_result, "node"):
                         node = run_result.node
-
-                        unique_id = getattr(node, "unique_id", "unknown")
-                        resource_type = str(getattr(node, "resource_type", "None"))
 
                         # get the fqn for the node
                         fqn = None
@@ -224,30 +216,30 @@ class DbtManager:
 
                         # get the upstream node dependencies
                         depends_on = []
-
                         if hasattr(node, "depends_on") and hasattr(
                             node.depends_on, "nodes"
                         ):
                             depends_on += node.depends_on.nodes
 
-                        node_data = {
-                            "unique_id": unique_id,
-                            "fqn": fqn,
-                            "resource_type": resource_type,
-                            "depends_on": depends_on,
-                        }
-
-                        # Add test result details for test/build commands
+                        # Extract test result details for test/build commands
+                        test_result = None
+                        resource_type = str(getattr(node, "resource_type", "None"))
                         if (
                             self.verb == "test" or self.verb == "build"
                         ) and resource_type == "test":
                             test_result = self._extract_test_result_from_run_result(
                                 run_result
                             )
-                            if test_result:
-                                node_data["test_result"] = test_result.model_dump()
 
-                        nodes.append(node_data)
+                        nodes.append(
+                            DbtNode(
+                                unique_id=getattr(node, "unique_id", "unknown"),
+                                fqn=fqn or "unknown",
+                                resource_type=resource_type,
+                                depends_on=depends_on,
+                                test_result=test_result,
+                            )
+                        )
 
         return nodes
 
