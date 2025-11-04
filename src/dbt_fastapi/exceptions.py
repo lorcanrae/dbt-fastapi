@@ -271,20 +271,6 @@ def translate_dbt_exception(
 # === Factory Functions ===
 
 
-def create_target_selection_error(provided_target, valid_targets) -> DbtTargetError:
-    """
-    Factory function for creating target selection errors.
-    """
-    return DbtTargetError(provided_target=provided_target, valid_targets=valid_targets)
-
-
-def create_execution_failure_error(command: list[str]) -> DbtExecutionError:
-    """
-    Factory function for creating execution failure errors.
-    """
-    return DbtExecutionError(message="dbt command execution failed", command=command)
-
-
 def create_compilation_error(
     failed_models: list[dict[str, Any]],
 ) -> DbtCompilationError:

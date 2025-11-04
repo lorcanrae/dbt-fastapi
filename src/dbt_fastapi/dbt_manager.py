@@ -6,9 +6,9 @@ from dbt.cli.main import dbtRunner, dbtRunnerResult
 
 from dbt_fastapi.exceptions import (
     DbtFastApiError,
+    DbtTargetError,
+    DbtExecutionError,
     translate_dbt_exception,
-    create_execution_failure_error,
-    create_target_selection_error,
     create_compilation_error,
 )
 from dbt_fastapi.schemas.dbt_schema import DbtTestResult, ResponseTestStatus
@@ -143,7 +143,7 @@ class DbtManager:
             result: dbtRunnerResult = runner.invoke(cli_command)
 
             if not result.success:
-                raise create_execution_failure_error(cli_command)
+                raise DbtExecutionError(cli_command)
 
             return result
 
@@ -360,7 +360,9 @@ class DbtManager:
                 result.exception
             ):
                 valid_targets: list[str] = re.findall(r"- (\w+)", str(result.exception))
-                raise create_target_selection_error(self.target, valid_targets)
+                raise DbtTargetError(
+                    provided_target=self.target, valid_targets=valid_targets
+                )
 
             # Check for SQL syntax compilation errors
             if self.verb != "list" and hasattr(result, "result") and result.result:
@@ -375,7 +377,7 @@ class DbtManager:
                 return
 
             # Generic
-            raise create_execution_failure_error(self.dbt_cli_args)
+            raise DbtExecutionError(self.dbt_cli_args)
 
     def _get_selection_criteria_string(self) -> str:
         """
@@ -472,7 +474,7 @@ class DbtManager:
             else None
         )
         failures = (
-            getattr(run_result, "failuers", None)
+            getattr(run_result, "failures", None)
             if api_status == ResponseTestStatus.FAIL
             else None
         )
