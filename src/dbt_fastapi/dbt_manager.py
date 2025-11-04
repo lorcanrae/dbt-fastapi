@@ -379,7 +379,7 @@ class DbtManager:
             # Generic
             raise DbtExecutionError(self.dbt_cli_args)
 
-    def _get_selection_criteria_string(self) -> str:
+    def get_selection_criteria_string(self) -> str:
         """
         Get a string representation of the current selection criteria.
 

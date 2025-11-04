@@ -42,7 +42,7 @@ def run_dbt(
         "dbt_command": " ".join(dbt_manager.dbt_cli_args),
         "target": dbt_manager.target,
         "nodes_processed": len(nodes),
-        "selection_criteria": dbt_manager._get_selection_criteria_string(),
+        "selection_criteria": dbt_manager.get_selection_criteria_string(),
     }
 
     return DbtResponse(success=result.success, nodes=nodes, metadata=metadata)
