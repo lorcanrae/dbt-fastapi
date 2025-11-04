@@ -18,7 +18,7 @@ from dbt_fastapi.config import (
     initialize_dbt_config,
     get_dbt_config,
     reset_dbt_config,
-    _discover_config_file,
+    _discover_config_dir,
 )
 from dbt_fastapi.exceptions import DbtConfigurationError
 
@@ -292,7 +292,7 @@ class TestConfigurationCaching:
 
 
 class TestDiscoverConfigFileFunction:
-    """Test the _discover_config_file helper function."""
+    """Test the _discover_config_dir helper function."""
 
     def test_discover_finds_in_current_dir(self, tmp_path, monkeypatch):
         """Test that discovery finds files in current directory first."""
@@ -303,7 +303,7 @@ class TestDiscoverConfigFileFunction:
         (tmp_path / "profiles.yml").write_text("test: {}")
 
         with patch("dbt_fastapi.config.PROJECT_ROOT", tmp_path):
-            result = _discover_config_file("profiles.yml", "profiles.yml")
+            result = _discover_config_dir("profiles.yml")
 
         assert result == str(tmp_path)
 
@@ -315,7 +315,7 @@ class TestDiscoverConfigFileFunction:
         (project_dir / "profiles.yml").write_text("test: {}")
 
         with patch("dbt_fastapi.config.PROJECT_ROOT", tmp_path):
-            result = _discover_config_file("profiles.yml", "profiles.yml")
+            result = _discover_config_dir("profiles.yml")
 
         assert result == str(project_dir)
 
@@ -332,7 +332,7 @@ class TestDiscoverConfigFileFunction:
         monkeypatch.chdir(child_dir)
 
         with patch("dbt_fastapi.config.PROJECT_ROOT", tmp_path):
-            result = _discover_config_file("profiles.yml", "profiles.yml")
+            result = _discover_config_dir("profiles.yml")
 
         assert result == str(tmp_path)
 
