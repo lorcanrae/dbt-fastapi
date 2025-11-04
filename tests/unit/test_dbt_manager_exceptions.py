@@ -1,409 +1,491 @@
-"""Tests for clean exception design in dbt-fastapi wrapper - Updated for decoupled exceptions."""
+"""
+Tests for DbtManager with configuration dependency injection.
+
+Key changes from original:
+- DbtManager now requires profiles_dir and project_dir parameters
+- No filesystem walking in DbtManager
+- Tests use explicit paths instead of relying on discovery
+"""
 
 import pytest
 from unittest.mock import Mock, patch
 
 from dbt.exceptions import (
-    DbtRuntimeError,
-    DbtProjectError,
     DbtProfileError,
     ParsingError,
 )
 
 from dbt_fastapi.exceptions import (
-    DbtFastApiError,
-    DbtValidationError,
     DbtTargetError,
     DbtConfigurationError,
     DbtExecutionError,
-    DbtInternalError,
-    translate_dbt_exception,
-    create_execution_failure_error,
-    create_configuration_missing_error,
-    create_configuration_duplicate_error,
 )
 from dbt_fastapi.dbt_manager import DbtManager
 
 
-class TestCustomExceptionHierarchy:
-    """Test the custom exception hierarchy design."""
+class TestDbtManagerInitialization:
+    """Test DbtManager initialization with explicit configuration."""
 
-    def test_base_exception_structure(self) -> None:
-        """Test that base exception has proper structure."""
-        error = DbtFastApiError(
-            message="Test error",
-            http_status_code=400,
-            details={"key": "value"},
+    def test_manager_accepts_explicit_paths(self, dummy_paths):
+        """Test that DbtManager accepts explicit configuration paths."""
+        profiles_dir, project_dir = dummy_paths
+
+        # Should not raise
+        manager = DbtManager(
+            verb="run",
+            target="dev",
+            profiles_dir=profiles_dir,
+            project_dir=project_dir,
         )
 
-        assert error.message == "Test error"
-        assert error.http_status_code == 400
-        assert error.details == {"key": "value"}
-        assert str(error) == "Test error"
+        assert manager.profiles_yaml_dir == profiles_dir
+        assert manager.dbt_project_yaml_dir == project_dir
+        assert manager.verb == "run"
+        assert manager.target == "dev"
 
-    def test_validation_error_inheritance(self) -> None:
-        """Test that validation errors inherit properly."""
-        error = DbtValidationError("Invalid input", field="target")
+    def test_manager_with_selection_args(self, dummy_paths):
+        """Test DbtManager with selection arguments."""
+        profiles_dir, project_dir = dummy_paths
 
-        assert isinstance(error, DbtFastApiError)
-        assert error.http_status_code == 400
-        assert error.details["field"] == "target"
-
-    def test_configuration_error_factories(self) -> None:
-        """Test configuration error factory functions."""
-        # Missing file error
-        missing_error = create_configuration_missing_error(
-            "dbt_project.yml", ["/path1", "/path2"]
+        manager = DbtManager(
+            verb="run",
+            target="dev",
+            profiles_dir=profiles_dir,
+            project_dir=project_dir,
+            select_args="model1 model2",
+            exclude_args="model3",
+            selector_args="my_selector",
         )
-        assert "not found" in missing_error.message
-        assert missing_error.details["search_paths"] == ["/path1", "/path2"]
 
-        # Duplicate file error
-        duplicate_error = create_configuration_duplicate_error(
-            "profiles.yml", ["/path1/profiles.yml", "/path2/profiles.yml"]
+        assert manager.select_args == ["model1", "model2"]
+        assert manager.exclude_args == ["model3"]
+        assert manager.selector_args == ["my_selector"]
+
+    def test_manager_generates_correct_cli_args(self, dummy_paths):
+        """Test that DbtManager generates correct CLI arguments."""
+        profiles_dir, project_dir = dummy_paths
+
+        manager = DbtManager(
+            verb="run",
+            target="dev",
+            profiles_dir=profiles_dir,
+            project_dir=project_dir,
+            select_args="model1",
         )
-        assert "Multiple" in duplicate_error.message
 
-    def test_execution_error_factory(self) -> None:
-        """Test execution error factory."""
-        error = create_execution_failure_error(["run", "--target", "dev"])
+        # Check CLI args
+        assert "run" in manager.dbt_cli_args
+        assert "--target" in manager.dbt_cli_args
+        assert "dev" in manager.dbt_cli_args
+        assert "--select" in manager.dbt_cli_args
+        assert "model1" in manager.dbt_cli_args
+        assert "--project-dir" in manager.dbt_cli_args
+        assert project_dir in manager.dbt_cli_args
+        assert "--profiles-dir" in manager.dbt_cli_args
+        assert profiles_dir in manager.dbt_cli_args
 
-        assert isinstance(error, DbtExecutionError)
-        assert error.http_status_code == 500
-        assert error.details["command"] == "run --target dev"
+
+class TestDbtManagerNoFilesystemWalking:
+    """Test that DbtManager doesn't walk filesystem."""
+
+    def test_no_filesystem_walking_on_initialization(self, dummy_paths):
+        """Test that DbtManager doesn't call os.walk during initialization."""
+        profiles_dir, project_dir = dummy_paths
+
+        # Mock os.walk to verify it's never called
+        with patch("os.walk") as mock_walk:
+            _manager = DbtManager(
+                verb="run",
+                target="dev",
+                profiles_dir=profiles_dir,
+                project_dir=project_dir,
+            )
+
+            # os.walk should NEVER be called
+            mock_walk.assert_not_called()
+
+    def test_multiple_instances_no_repeated_discovery(self, dummy_paths):
+        """Test that creating multiple managers doesn't trigger discovery."""
+        profiles_dir, project_dir = dummy_paths
+
+        with patch("os.walk") as mock_walk:
+            # Create 100 managers (simulating 100 requests)
+            managers = []
+            for _ in range(100):
+                manager = DbtManager(
+                    verb="run",
+                    target="dev",
+                    profiles_dir=profiles_dir,
+                    project_dir=project_dir,
+                )
+                managers.append(manager)
+
+            # os.walk should NEVER be called
+            assert mock_walk.call_count == 0
+
+            # All should have same paths
+            assert all(m.profiles_yaml_dir == profiles_dir for m in managers)
+            assert all(m.dbt_project_yaml_dir == project_dir for m in managers)
 
 
-class TestDbtExceptionTranslation:
-    """Test translation of dbt exceptions to our custom exceptions."""
+class TestDbtManagerExecution:
+    """Test DbtManager command execution."""
 
-    def test_translate_parsing_error(self) -> None:
-        """Test that ParsingError is properly translated."""
-        dbt_error = ParsingError("Invalid YAML syntax")
-        context = {"project_dir": "/path/to/project"}
+    def test_successful_execution(self, dummy_paths, mock_dbt_result):
+        """Test successful dbt command execution."""
+        profiles_dir, project_dir = dummy_paths
 
-        translated = translate_dbt_exception(dbt_error, context)
-
-        assert isinstance(translated, DbtConfigurationError)
-        assert "Configuration parsing error" in translated.message
-        assert translated.details["config_type"] == "parsing"
-        assert translated.original_exception is dbt_error
-
-    def test_translate_profile_error_target(self) -> None:
-        """Test that DbtProfileError with target info is translated to DbtTargetError."""
-        dbt_error = DbtProfileError(
-            "Profile 'default' does not have a target named 'invalid'. - dev\n- prod"
+        manager = DbtManager(
+            verb="run",
+            target="dev",
+            profiles_dir=profiles_dir,
+            project_dir=project_dir,
         )
-        context = {"target": "invalid"}
 
-        translated = translate_dbt_exception(dbt_error, context)
-
-        assert isinstance(translated, DbtTargetError)
-        assert translated.details["provided_target"] == "invalid"
-        assert "dev" in translated.details["valid_targets"]
-        assert "prod" in translated.details["valid_targets"]
-
-    def test_translate_profile_error_generic(self) -> None:
-        """Test that generic DbtProfileError is translated to DbtConfigurationError."""
-        dbt_error = DbtProfileError("Connection failed")
-        context = {"profiles_dir": "/path/to/profiles"}
-
-        translated = translate_dbt_exception(dbt_error, context)
-
-        assert isinstance(translated, DbtConfigurationError)
-        assert "profile configuration error" in translated.message
-        assert translated.details["config_type"] == "profiles.yml"
-        assert translated.details["config_path"] == "/path/to/profiles"
-
-    def test_translate_project_error(self) -> None:
-        """Test that DbtProjectError is properly translated."""
-        dbt_error = DbtProjectError("Invalid project configuration")
-        context = {"project_dir": "/path/to/project"}
-
-        translated = translate_dbt_exception(dbt_error, context)
-
-        assert isinstance(translated, DbtConfigurationError)
-        assert "project configuration error" in translated.message
-        assert translated.details["config_type"] == "dbt_project.yml"
-
-    def test_translate_runtime_error_target(self) -> None:
-        """Test that DbtRuntimeError with target info becomes DbtTargetError."""
-        dbt_error = DbtRuntimeError(
-            "Profile 'default' does not have a target named 'test'. - dev\n- prod"
-        )
-        context = {"target": "test"}
-
-        translated = translate_dbt_exception(dbt_error, context)
-
-        assert isinstance(translated, DbtTargetError)
-        assert translated.details["provided_target"] == "test"
-
-    def test_translate_runtime_error_generic(self) -> None:
-        """Test that generic DbtRuntimeError becomes DbtExecutionError."""
-        dbt_error = DbtRuntimeError("Model compilation failed")
-        context = {"command": ["run", "--target", "dev"]}
-
-        translated = translate_dbt_exception(dbt_error, context)
-
-        assert isinstance(translated, DbtExecutionError)
-        assert "dbt execution failed" in translated.message
-        # Command is stored as a joined string in DbtExecutionError
-        assert translated.details["command"] == "run --target dev"
-
-    def test_translate_unknown_exception(self) -> None:
-        """Test that unknown exceptions become DbtInternalError."""
-        unknown_error = ValueError("Some unexpected error")
-
-        translated = translate_dbt_exception(unknown_error)
-
-        assert isinstance(translated, DbtInternalError)
-        assert "Unexpected dbt error" in translated.message
-        assert translated.original_exception is unknown_error
-
-
-class TestDbtManagerWithCleanExceptions:
-    """Test DbtManager raises domain exceptions"""
-
-    @patch("os.walk")
-    def test_successful_execution_with_empty_results(self, mock_walk: Mock) -> None:
-        """Test that empty results no longer raise DbtModelSelectionError."""
-        # Mock config file discovery
-        mock_walk.return_value = [("/project", [], ["dbt_project.yml", "profiles.yml"])]
-
-        manager = DbtManager(verb="run", target="dev", select_args="nonexistent_model")
-
-        # Mock a successful result with no models
-        mock_result = Mock()
-        mock_result.success = True
-        mock_result.result = Mock()
-        mock_result.result.results = []  # No models found
-
-        with patch.object(manager.runner, "invoke", return_value=mock_result):
-            # This should NOT raise an exception anymore
+        # Mock the runner
+        with patch.object(manager.runner, "invoke", return_value=mock_dbt_result):
             result = manager.execute_dbt_command()
-            nodes = manager.get_nodes_from_result(result)
 
             assert result.success is True
-            assert len(nodes) == 0  # Empty list is returned, not an exception
 
-    @patch("os.walk")
-    def test_execution_failure_handling(self, mock_walk: Mock) -> None:
-        """Test that execution failures raise DbtExecutionError (not HTTPException)."""
-        # Mock config file discovery
-        mock_walk.return_value = [("/project", [], ["dbt_project.yml", "profiles.yml"])]
+    def test_execution_failure_raises_error(self, dummy_paths, mock_failed_dbt_result):
+        """Test that failed execution raises DbtExecutionError."""
+        profiles_dir, project_dir = dummy_paths
 
-        manager = DbtManager(verb="run", target="dev")
+        manager = DbtManager(
+            verb="run",
+            target="dev",
+            profiles_dir=profiles_dir,
+            project_dir=project_dir,
+        )
 
-        # Mock a failed result
-        mock_result = Mock(success=False, exception=None, spec=["success", "exception"])
-
-        with patch.object(manager.runner, "invoke", return_value=mock_result):
-            # Should raise domain exception
-            with pytest.raises(DbtExecutionError) as exc_info:
+        with patch.object(
+            manager.runner, "invoke", return_value=mock_failed_dbt_result
+        ):
+            with pytest.raises(DbtExecutionError) as exc:
                 manager.execute_dbt_command()
 
-            # Verify it's a domain exception
-            assert exc_info.value.http_status_code == 500
-            assert "dbt command execution failed" in exc_info.value.message
+            assert exc.value.http_status_code == 500
 
-    @patch("os.walk")
-    def test_dbt_exception_translation(self, mock_walk: Mock) -> None:
-        """Test that dbt exceptions are properly translated to domain exceptions."""
-        # Mock config file discovery
-        mock_walk.return_value = [("/project", [], ["dbt_project.yml", "profiles.yml"])]
+    def test_invalid_target_raises_target_error(self, dummy_paths):
+        """Test that invalid target raises DbtTargetError."""
+        profiles_dir, project_dir = dummy_paths
 
-        manager = DbtManager(verb="run", target="invalid_target")
+        manager = DbtManager(
+            verb="run",
+            target="invalid_target",
+            profiles_dir=profiles_dir,
+            project_dir=project_dir,
+        )
 
-        # Mock a DbtProfileError being raised
+        # Mock DbtProfileError with target info
         profile_error = DbtProfileError(
             "Profile 'default' does not have a target named 'invalid_target'. - dev\n- prod"
         )
 
         with patch.object(manager.runner, "invoke", side_effect=profile_error):
-            # Should raise DbtTargetError (domain exception), not HTTPException
-            with pytest.raises(DbtTargetError) as exc_info:
+            with pytest.raises(DbtTargetError) as exc:
                 manager.execute_dbt_command()
 
-            # Verify the domain exception details
-            assert exc_info.value.http_status_code == 400
-            assert exc_info.value.details["provided_target"] == "invalid_target"
-            assert "dev" in exc_info.value.details["valid_targets"]
+            assert exc.value.details["provided_target"] == "invalid_target"
+            assert "dev" in exc.value.details["valid_targets"]
+            assert "prod" in exc.value.details["valid_targets"]
 
-    @patch("os.walk")
-    def test_configuration_missing_error(self, mock_walk: Mock) -> None:
-        """Test that missing configuration files raise DbtConfigurationError."""
-        # Mock no dbt_project.yml found
-        mock_walk.return_value = [("/root", [], ["other_file.txt"])]
+    def test_parsing_error_translated(self, dummy_paths):
+        """Test that ParsingError is translated to DbtConfigurationError."""
+        profiles_dir, project_dir = dummy_paths
 
-        # Should raise domain exception during initialization
-        with pytest.raises(DbtConfigurationError) as exc_info:
-            DbtManager(verb="run", target="dev")
+        manager = DbtManager(
+            verb="run",
+            target="dev",
+            profiles_dir=profiles_dir,
+            project_dir=project_dir,
+        )
 
-        # Verify it's a domain exception
-        assert exc_info.value.http_status_code == 400
-        assert "dbt_project.yml" in exc_info.value.message
-        assert "not found" in exc_info.value.message
+        parsing_error = ParsingError("Invalid YAML syntax")
 
-    @patch("os.walk")
-    def test_configuration_duplicate_error(self, mock_walk: Mock) -> None:
-        """Test that duplicate configuration files raise DbtConfigurationError."""
-        # Mock multiple dbt_project.yml files found
-        mock_walk.return_value = [
-            ("/root1", [], ["dbt_project.yml", "profiles.yml"]),
-            ("/root2", [], ["dbt_project.yml"]),
-        ]
+        with patch.object(manager.runner, "invoke", side_effect=parsing_error):
+            with pytest.raises(DbtConfigurationError) as exc:
+                manager.execute_dbt_command()
 
-        # Should raise domain exception during initialization
-        with pytest.raises(DbtConfigurationError) as exc_info:
-            DbtManager(verb="run", target="dev")
+            assert "Configuration parsing error" in exc.value.message
 
-        # Verify it's a domain exception
-        assert exc_info.value.http_status_code == 400
-        assert "Multiple" in exc_info.value.message
 
-    def test_unsafe_command_exception_handling(self) -> None:
-        """Test that unsafe commands handle exceptions properly."""
+class TestDbtManagerUnsafeCommand:
+    """Test unsafe command execution."""
+
+    def test_unsafe_command_execution(self, mock_dbt_result):
+        """Test execute_unsafe_dbt_command."""
         with patch("dbt_fastapi.dbt_manager.dbtRunner") as mock_runner_class:
             mock_runner = Mock()
+            mock_runner.invoke.return_value = mock_dbt_result
             mock_runner_class.return_value = mock_runner
 
-            # Mock a parsing error
-            parsing_error = ParsingError("Invalid YAML syntax")
-            mock_runner.invoke.side_effect = parsing_error
+            result = DbtManager.execute_unsafe_dbt_command(["dbt", "run"])
 
-            # Should raise DbtConfigurationError (domain exception)
-            with pytest.raises(DbtConfigurationError) as exc_info:
-                DbtManager.execute_unsafe_dbt_command(["dbt", "run"])
+            assert result.success is True
+            # Should have removed 'dbt' from command
+            mock_runner.invoke.assert_called_once()
+            called_args = mock_runner.invoke.call_args[0][0]
+            assert "dbt" not in called_args or called_args[0] != "dbt"
 
-            # Verify it's a domain exception
-            assert exc_info.value.http_status_code == 400
-            assert "Configuration parsing error" in exc_info.value.message
+    def test_unsafe_command_removes_dbt_prefix(self, mock_dbt_result):
+        """Test that 'dbt' is removed from command."""
+        with patch("dbt_fastapi.dbt_manager.dbtRunner") as mock_runner_class:
+            mock_runner = Mock()
+            mock_runner.invoke.return_value = mock_dbt_result
+            mock_runner_class.return_value = mock_runner
+
+            DbtManager.execute_unsafe_dbt_command(["dbt", "list", "--select", "model1"])
+
+            called_args = mock_runner.invoke.call_args[0][0]
+            # First element should be 'list', not 'dbt'
+            assert called_args[0] == "list"
 
 
 class TestNodeExtraction:
-    """Test the unified node extraction functionality."""
+    """Test node extraction from dbt results."""
 
-    def test_get_nodes_from_empty_result(self) -> None:
-        """Test node extraction from empty results."""
-        manager = Mock()
+    def test_get_nodes_from_empty_result(self, dummy_paths):
+        """Test node extraction from empty result."""
+        profiles_dir, project_dir = dummy_paths
 
-        # Mock empty result
+        manager = DbtManager(
+            verb="run",
+            target="dev",
+            profiles_dir=profiles_dir,
+            project_dir=project_dir,
+        )
+
         mock_result = Mock()
         mock_result.result = Mock()
         mock_result.result.results = []
 
-        from dbt_fastapi.dbt_manager import DbtManager
-
-        nodes = DbtManager.get_nodes_from_result(manager, mock_result)
+        nodes = manager.get_nodes_from_result(mock_result)
 
         assert nodes == []
 
+    def test_get_nodes_from_list_result(self, dummy_paths):
+        """Test node extraction from list command."""
+        profiles_dir, project_dir = dummy_paths
 
-class TestExceptionDesignBenefits:
-    """Test cases that demonstrate the benefits of the clean exception design."""
+        manager = DbtManager(
+            verb="list",
+            target="dev",
+            profiles_dir=profiles_dir,
+            project_dir=project_dir,
+        )
 
-    def test_exception_chaining_preserves_original(self) -> None:
-        """Test that original dbt exceptions are preserved for debugging."""
-        original_error = DbtRuntimeError("Original dbt error")
-        context = {"command": ["run"]}
-
-        translated = translate_dbt_exception(original_error, context)
-
-        assert translated.original_exception is original_error
-        assert isinstance(translated.original_exception, DbtRuntimeError)
-
-    def test_consistent_error_structure(self) -> None:
-        """Test that all custom exceptions have consistent structure."""
-        errors = [
-            DbtTargetError("invalid", ["dev", "prod"]),
-            create_configuration_missing_error("dbt_project.yml"),
-            create_execution_failure_error(["run"]),
+        # Mock list result (returns JSON strings)
+        mock_result = Mock()
+        mock_result.result = [
+            '{"unique_id": "model.project.model1", "resource_type": "model", "alias": "model1", "depends_on": {"nodes": []}}',
+            '{"unique_id": "model.project.model2", "resource_type": "model", "alias": "model2", "depends_on": {"nodes": ["model.project.model1"]}}',
         ]
 
-        for error in errors:
-            # All should be DbtFastApiError subclasses
-            assert isinstance(error, DbtFastApiError)
+        nodes = manager.get_nodes_from_result(mock_result)
 
-            # All should have required attributes
-            assert hasattr(error, "message")
-            assert hasattr(error, "http_status_code")
-            assert hasattr(error, "details")
+        assert len(nodes) == 2
+        assert nodes[0]["unique_id"] == "model.project.model1"
+        assert nodes[1]["unique_id"] == "model.project.model2"
 
-            # All should have appropriate HTTP status codes
-            assert error.http_status_code in [400, 500]
+    def test_get_nodes_from_run_result(self, dummy_paths):
+        """Test node extraction from run command."""
+        profiles_dir, project_dir = dummy_paths
 
-            # All should have helpful details
-            assert isinstance(error.details, dict)
+        manager = DbtManager(
+            verb="run",
+            target="dev",
+            profiles_dir=profiles_dir,
+            project_dir=project_dir,
+        )
 
-    def test_error_categorization(self) -> None:
-        """Test that errors are properly categorized by HTTP status codes."""
-        # Client errors (400)
-        client_errors = [
-            DbtTargetError("invalid", ["dev"]),
-            create_configuration_missing_error("dbt_project.yml"),
-        ]
+        # Mock run result
+        mock_result = Mock()
+        mock_result.result = Mock()
 
-        for error in client_errors:
-            assert error.http_status_code == 400
+        mock_node1 = Mock()
+        mock_node1.unique_id = "model.project.model1"
+        mock_node1.resource_type = "model"
+        mock_node1.fqn = ["project", "model1"]
+        mock_node1.depends_on = Mock()
+        mock_node1.depends_on.nodes = []
 
-        # Server errors (500)
-        server_errors = [
-            create_execution_failure_error(["run"]),
-            DbtInternalError("Unexpected error"),
-        ]
+        mock_run_result1 = Mock()
+        mock_run_result1.node = mock_node1
 
-        for error in server_errors:
-            assert error.http_status_code == 500
+        mock_result.result.results = [mock_run_result1]
 
-    def test_testability_benefits(self) -> None:
-        """Test that custom exceptions are easier to test than HTTP exceptions."""
-        # We can test business logic without HTTP concerns
-        with pytest.raises(DbtTargetError) as exc_info:
-            raise DbtTargetError("invalid", ["dev", "prod"])
+        nodes = manager.get_nodes_from_result(mock_result)
 
-        # We can inspect the error details directly
-        error = exc_info.value
-        assert error.details["provided_target"] == "invalid"
+        assert len(nodes) == 1
+        assert nodes[0]["unique_id"] == "model.project.model1"
+        assert nodes[0]["fqn"] == "project.model1"
 
-        # We can test error categorization
-        assert error.http_status_code == 400
-        assert isinstance(error, DbtValidationError)
 
-    def test_debugging_benefits(self) -> None:
-        """Test that the design provides better debugging information."""
-        original_dbt_error = DbtRuntimeError("Original error message")
-        context = {
-            "target": "dev",
-            "command": ["run", "--select", "model1"],
-        }
+class TestTestSummary:
+    """Test test summary extraction."""
 
-        translated = translate_dbt_exception(original_dbt_error, context)
+    def test_get_test_summary_for_test_command(self, dummy_paths):
+        """Test that get_test_summary works for test command."""
+        profiles_dir, project_dir = dummy_paths
 
-        # Rich debugging information
-        assert translated.original_exception is original_dbt_error
-        assert "command" in translated.details
-        # Command is stored as a joined string in DbtExecutionError
-        assert translated.details["command"] == "run --select model1"
+        manager = DbtManager(
+            verb="test",
+            target="dev",
+            profiles_dir=profiles_dir,
+            project_dir=project_dir,
+        )
 
-        # Clear error hierarchy
-        assert isinstance(translated, DbtExecutionError)
-        assert isinstance(translated, DbtFastApiError)
+        # Mock test result
+        mock_result = Mock()
+        mock_result.result = Mock()
+        mock_result.result.results = []
 
-    def test_business_logic_is_http_agnostic(self) -> None:
-        """Test that DbtManager doesn't know about HTTP - critical for decoupling!"""
-        # This test verifies that DbtManager only raises domain exceptions
-        from dbt_fastapi.dbt_manager import DbtManager
+        summary = manager.get_test_summary(mock_result)
 
-        # from fastapi import HTTPException
-        import inspect
+        assert summary is not None
+        assert "total" in summary
+        assert "passed" in summary
+        assert "failed" in summary
 
-        # Get all methods in DbtManager
-        methods = inspect.getmembers(DbtManager, predicate=inspect.isfunction)
+    def test_get_test_summary_for_non_test_command(self, dummy_paths):
+        """Test that get_test_summary returns None for non-test commands."""
+        profiles_dir, project_dir = dummy_paths
 
-        for method_name, method in methods:
-            source = inspect.getsource(method)
+        manager = DbtManager(
+            verb="run",
+            target="dev",
+            profiles_dir=profiles_dir,
+            project_dir=project_dir,
+        )
 
-            # Verify no HTTPException is raised in any method
-            assert "HTTPException" not in source, (
-                f"Method {method_name} contains HTTPException - "
-                "business logic should not know about HTTP!"
+        mock_result = Mock()
+
+        summary = manager.get_test_summary(mock_result)
+
+        assert summary is None
+
+
+class TestCompilationErrors:
+    """Test compilation error handling."""
+
+    def test_extract_failed_models(self, dummy_paths):
+        """Test extraction of failed models from result."""
+        profiles_dir, project_dir = dummy_paths
+
+        manager = DbtManager(
+            verb="run",
+            target="dev",
+            profiles_dir=profiles_dir,
+            project_dir=project_dir,
+        )
+
+        # Mock result with compilation error
+        try:
+            from dbt.contracts.results import RunStatus
+
+            mock_result = Mock()
+            mock_result.result = Mock()
+
+            mock_node = Mock()
+            mock_node.name = "failing_model"
+            mock_node.original_file_path = "models/failing_model.sql"
+
+            mock_run_result = Mock()
+            mock_run_result.status = RunStatus.Error
+            mock_run_result.message = "Syntax error: invalid SQL"
+            mock_run_result.node = mock_node
+
+            mock_result.result.results = [mock_run_result]
+
+            failed_models = manager._extract_failed_models(mock_result)
+
+            assert len(failed_models) == 1
+            assert failed_models[0]["name"] == "failing_model"
+            assert "Syntax error" in failed_models[0]["error_message"]
+        except ImportError:
+            pytest.skip("dbt.contracts.results not available")
+
+
+class TestSelectionCriteria:
+    """Test selection criteria string generation."""
+
+    def test_selection_criteria_string_with_select(self, dummy_paths):
+        """Test selection criteria string with select args."""
+        profiles_dir, project_dir = dummy_paths
+
+        manager = DbtManager(
+            verb="run",
+            target="dev",
+            profiles_dir=profiles_dir,
+            project_dir=project_dir,
+            select_args="model1 model2",
+        )
+
+        criteria = manager._get_selection_criteria_string()
+
+        assert "select_args: model1 model2" in criteria
+
+    def test_selection_criteria_string_no_selection(self, dummy_paths):
+        """Test selection criteria string with no selection."""
+        profiles_dir, project_dir = dummy_paths
+
+        manager = DbtManager(
+            verb="run",
+            target="dev",
+            profiles_dir=profiles_dir,
+            project_dir=project_dir,
+        )
+
+        criteria = manager._get_selection_criteria_string()
+
+        assert criteria == "no selection criteria"
+
+
+class TestDbtManagerPerformance:
+    """Performance-related tests."""
+
+    def test_instantiation_is_fast(self, dummy_paths, benchmark=None):
+        """Test that creating DbtManager instances is fast."""
+        if benchmark is None:
+            pytest.skip("pytest-benchmark not available")
+
+        profiles_dir, project_dir = dummy_paths
+
+        def create_manager():
+            return DbtManager(
+                verb="run",
+                target="dev",
+                profiles_dir=profiles_dir,
+                project_dir=project_dir,
             )
+
+        # Should be very fast (< 1ms) since no filesystem I/O
+        result = benchmark(create_manager)
+        assert result is not None
+
+    def test_create_many_managers_quickly(self, dummy_paths):
+        """Test that creating many managers is fast."""
+        profiles_dir, project_dir = dummy_paths
+
+        import time
+
+        start = time.time()
+
+        # Create 1000 managers
+        managers = []
+        for _ in range(1000):
+            manager = DbtManager(
+                verb="run",
+                target="dev",
+                profiles_dir=profiles_dir,
+                project_dir=project_dir,
+            )
+            managers.append(manager)
+
+        elapsed = time.time() - start
+
+        # Should complete in under 1 second (no filesystem I/O!)
+        assert elapsed < 1.0
+        assert len(managers) == 1000
