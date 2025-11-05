@@ -286,8 +286,9 @@ class TestNodeExtraction:
         nodes = manager.get_nodes_from_result(mock_result)
 
         assert len(nodes) == 2
-        assert nodes[0]["unique_id"] == "model.project.model1"
-        assert nodes[1]["unique_id"] == "model.project.model2"
+        # Should be a DbtNode object, not a dictionary
+        assert nodes[0].unique_id == "model.project.model1"
+        assert nodes[1].unique_id == "model.project.model2"
 
     def test_get_nodes_from_run_result(self, dummy_paths):
         """Test node extraction from run command."""
@@ -319,8 +320,9 @@ class TestNodeExtraction:
         nodes = manager.get_nodes_from_result(mock_result)
 
         assert len(nodes) == 1
-        assert nodes[0]["unique_id"] == "model.project.model1"
-        assert nodes[0]["fqn"] == "project.model1"
+        # This should be a DbtNode, not a dictionary
+        assert nodes[0].unique_id == "model.project.model1"
+        assert nodes[0].fqn == "project.model1"
 
 
 class TestTestSummary:
