@@ -11,7 +11,9 @@ from dbt_fastapi.exceptions import (
     translate_dbt_exception,
     create_compilation_error,
 )
-from dbt_fastapi.schemas.dbt_schema import DbtTestResult, ResponseTestStatus, DbtNode
+
+from dbt_fastapi.schemas.response_schema import DbtNode, DbtTestResult
+from dbt_fastapi.schemas.enums import ResponseTestStatus
 
 
 class DbtManager:
@@ -37,6 +39,12 @@ class DbtManager:
         select_args: str | None = None,
         exclude_args: str | None = None,
         selector_args: str | None = None,
+        # Command-specific options - run, build
+        full_refresh: bool = False,
+        fail_fast: bool = False,
+        # Command-specific options - test, build
+        store_failures: bool = False,
+        # Command-specific options - list
         resource_type: str | None = None,
     ) -> None:
         """
@@ -48,7 +56,10 @@ class DbtManager:
             select_args: Optional dbt --select argument.
             exclude_args: Optional dbt --exclude argument.
             selector_args: Optional dbt --selector argument.
-            resource_type: Currently unused; reserved for future support.
+            full_refresh: Run full refresh on incremental models (run, build)
+            fail_fast: Stop execution on first failure (run, build)
+            store_failures: Store test failures in data sink (test, build)
+            resource_type: Filter by resource type (list)
 
         Raises:
             DbtConfigurationError: If configuration files are missing or invalid
@@ -59,6 +70,11 @@ class DbtManager:
         self.select_args: list[str] = select_args.split() if select_args else []
         self.exclude_args: list[str] = exclude_args.split() if exclude_args else []
         self.selector_args: list[str] = selector_args.split() if selector_args else []
+
+        self.full_refresh = full_refresh
+        self.fail_fast = fail_fast
+        self.store_failures = store_failures
+        self.resource_type = resource_type
 
         self.profiles_yaml_dir: str = profiles_dir
         self.dbt_project_yaml_dir: str = project_dir
@@ -317,8 +333,11 @@ class DbtManager:
             self.profiles_yaml_dir,
         ]
 
+        # List specific options
         if self.verb == "list":
-            dbt_args += ["--output", "json"]
+            dbt_args.extend(["--output", "json"])
+            if self.resource_type:
+                dbt_args.extend(["--resource-type", self.resource_type])
 
         # Add selection arguments
         if self.select_args:
@@ -328,7 +347,15 @@ class DbtManager:
         if self.selector_args:
             dbt_args.extend(["--selector"] + self.selector_args)
 
-        # Add target
+        # Command specific flags
+        if self.full_refresh:
+            dbt_args.append("--full-refresh")
+        if self.fail_fast:
+            dbt_args.append("--fail-fast")
+        if self.store_failures:
+            dbt_args.append("--store-failures")
+
+        # Add target - always last
         dbt_args.extend(["--target", self.target])
 
         return dbt_args
