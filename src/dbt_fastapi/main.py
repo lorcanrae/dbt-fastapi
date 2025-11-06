@@ -1,6 +1,7 @@
 import logging
-from contextlib import asynccontextmanager
+from typing import Any
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, status
 
 from dbt_fastapi.routes import dbt_router
@@ -62,9 +63,15 @@ app.add_exception_handler(Exception, generic_exception_handler)
 
 
 @app.get("/", tags=["info"])
-def root():
+def root() -> dict[str, Any]:
     """Root endpoint with basic application info."""
-    return {"status": "running", "version": app.version, "author": "Lorcan Rae"}
+    return {
+        "service": "dbt-fastapi",
+        "version": app.version,
+        "health_check": "/health",
+        "readiness_check": "/readiness",
+        "documentation": "/docs",
+    }
 
 
 @app.get("/health", tags=["health"])
