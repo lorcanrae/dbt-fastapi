@@ -200,6 +200,10 @@ class DbtManager:
         """
         nodes: list[dict[str]] = []
 
+        # from pprint import pprint as print
+
+        # print(result)
+
         # Handle list command results (returns a list of strings directly)
         if hasattr(result, "result") and result.result:
             # for dbt list
@@ -230,6 +234,11 @@ class DbtManager:
                             else:
                                 fqn = str(node.fqn)
 
+                        # get the tags for the model
+                        tags = []
+                        if hasattr(node, "tags") and node.tags:
+                            tags = node.tags
+
                         # get the upstream node dependencies
                         depends_on = []
                         if hasattr(node, "depends_on") and hasattr(
@@ -251,6 +260,7 @@ class DbtManager:
                             DbtNode(
                                 unique_id=getattr(node, "unique_id", "unknown"),
                                 fqn=fqn or "unknown",
+                                tags=tags,
                                 resource_type=resource_type,
                                 depends_on=depends_on,
                                 test_result=test_result,

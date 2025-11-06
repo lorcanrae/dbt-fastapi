@@ -311,6 +311,7 @@ class TestNodeExtraction:
         mock_node1.fqn = ["project", "model1"]
         mock_node1.depends_on = Mock()
         mock_node1.depends_on.nodes = []
+        mock_node1.tags = ["tag1", "tag2"]
 
         mock_run_result1 = Mock()
         mock_run_result1.node = mock_node1
@@ -323,6 +324,7 @@ class TestNodeExtraction:
         # This should be a DbtNode, not a dictionary
         assert nodes[0].unique_id == "model.project.model1"
         assert nodes[0].fqn == "project.model1"
+        assert set(nodes[0].tags) == set(["tag1", "tag2"])
 
 
 class TestTestSummary:

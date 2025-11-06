@@ -52,6 +52,7 @@ class DbtNode(BaseModel):
         ...,
         description="Fully qualified name for use with --select/--exclude",
     )
+    tags: list[str] = Field(..., default_factory=list, description="Node tags")
     resource_type: str = Field(
         ...,
         description="Type of dbt resource (model, test, snapshot, seed, etc.)",
