@@ -50,9 +50,11 @@ def run_dbt(
     # Extract test summary
     test_summary = dbt_manager.get_test_summary(result)
 
+    dbt_command = " ".join(dbt_manager.dbt_cli_args)
+
     metadata = DbtTestBuildMetadata(
         command=COMMAND,
-        dbt_command=" ".join(dbt_manager.dbt_cli_args),
+        dbt_command=dbt_command,
         target=dbt_manager.target,
         nodes_processed=len(nodes),
         selection_criteria=dbt_manager.get_selection_criteria_string(),
@@ -60,7 +62,7 @@ def run_dbt(
         has_test_errors=test_summary.get("errored", 0) > 0,
     )
 
-    if payload.fail_on_test_failures and (
+    if not payload.pass_on_test_failures and (
         metadata.has_test_failures or metadata.has_test_error
     ):
         failed_tests = []
@@ -102,6 +104,7 @@ def run_dbt(
                 "passed_tests": passed_tests,
                 "metadata": {
                     "command": COMMAND,
+                    "dbt_command": dbt_command,
                     "target": dbt_manager.target,
                     "selection_criteria": dbt_manager.get_selection_criteria_string(),
                 },
