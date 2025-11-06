@@ -73,6 +73,9 @@ class DbtTestRequest(DbtCommandRequestBase):
         False,
         description="If True, store test failures in the database for analysis",
     )
+    fail_on_test_failures: bool = Field(
+        False, description="If True, return HTTP 422 when any tests fail or error."
+    )
 
 
 class DbtBuildRequest(DbtCommandRequestBase):
@@ -94,6 +97,9 @@ class DbtBuildRequest(DbtCommandRequestBase):
     fail_fast: bool = Field(
         False,
         description="If True, stop execution on first failure",
+    )
+    fail_on_test_failures: bool = Field(
+        False, description="If True, return HTTP 422 when any tests fail or error."
     )
 
 

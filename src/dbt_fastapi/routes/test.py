@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from dbt_fastapi.dbt_manager import DbtManager
 from dbt_fastapi.config import DbtConfig, get_dbt_config
@@ -59,6 +59,54 @@ def run_dbt(
         has_test_failures=test_summary.get("failed", 0) > 0,
         has_test_errors=test_summary.get("errored", 0) > 0,
     )
+
+    if payload.fail_on_test_failures and (
+        metadata.has_test_failures or metadata.has_test_error
+    ):
+        failed_tests = []
+        passed_tests = []
+        for node in nodes:
+            if node.test_result and node.test_result.status.value in ["fail", "error"]:
+                failed_tests.append(
+                    {
+                        "unique_id": node.test_result.unique_id,
+                        "name": node.test_result.name,
+                        "status": node.test_result.message,
+                        "failures": node.test_result.failures,
+                        "execution_time": node.test_result.execution_time,
+                    }
+                )
+            else:
+                passed_tests.append(
+                    {
+                        "unique_id": node.test_result.unique_id,
+                        "name": node.test_result.name,
+                        "status": node.test_result.message,
+                        "failures": None,
+                        "execution_time": node.test_result.execution_time,
+                    }
+                )
+        error_parts = []
+        if metadata.has_test_failures:
+            error_parts.append(f"{test_summary['failed']} test(s) failed")
+        if metadata.has_test_errors:
+            error_parts.append(f"{test_summary['errored']} test(s) errored")
+
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "TestExecutionFailed",
+                "message": ", ".join(error_parts),
+                "test_summary": test_summary,
+                "failed_tests": failed_tests,
+                "passed_tests": passed_tests,
+                "metadata": {
+                    "command": COMMAND,
+                    "target": dbt_manager.target,
+                    "selection_criteria": dbt_manager.get_selection_criteria_string(),
+                },
+            },
+        )
 
     return DbtTestResponse(
         success=result.success,
