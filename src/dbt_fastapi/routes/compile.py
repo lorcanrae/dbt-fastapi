@@ -42,9 +42,6 @@ def run_dbt(
     # Extract list of nodes
     nodes = dbt_manager.get_nodes_from_result(result)
 
-    # Extract test sumary
-    test_summary = dbt_manager.get_test_summary(result)
-
     metadata = DbtMetadataBase(
         command=COMMAND,
         dbt_command=" ".join(dbt_manager.dbt_cli_args),
@@ -57,5 +54,4 @@ def run_dbt(
         success=result.success,
         nodes=nodes,
         metadata=metadata,
-        test_summary=test_summary,
     )
