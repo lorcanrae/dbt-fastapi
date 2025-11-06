@@ -1,9 +1,8 @@
 """
 FastAPI exception handlers for converting domain exceptions to HTTP responses.
 
-This module handles the translation between domain exceptions (DbtFastApiError)
+Handles the translation between domain exceptions (DbtFastApiError)
 and HTTP responses.
-Keeps the business logic (DbtManager) decoupled from the HTTP layer.
 """
 
 import logging
@@ -62,9 +61,6 @@ async def dbt_error_handler(request: Request, exc: DbtFastApiError) -> JSONRespo
 async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """
     Catch-all handler for unexpected exceptions.
-
-    This provides a safety net for any exceptions that aren't caught by
-    domain exception handlers.
 
     Args:
         request: The FastAPI request object

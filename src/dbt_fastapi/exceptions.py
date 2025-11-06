@@ -1,13 +1,14 @@
 from typing import Any
 from fastapi import status
 
-# Error hierarchy:
+# Exception Hierarchy hierarchy:
 #
 # DbtFastApiError (base)
 # ├── DbtValidationError    (400)
 # │   └── DbtTargetError    (400)
 # ├── DbtConfigurationError (400)
 # ├── DbtCompilationError   (400)
+# ├── DbtTestExecutionError (422)
 # ├── DbtExecutionError     (500)
 # └── DbtInternalError      (500)
 
@@ -132,6 +133,52 @@ class DbtCompilationError(DbtFastApiError):
             http_status_code=status.HTTP_400_BAD_REQUEST,
             details=details,
             original_exception=original_exception,
+        )
+
+
+class DbtTestExecutionError(DbtFastApiError):
+    """Raised when dbt tests fail or error during execution"""
+
+    def __init__(
+        self,
+        message: str,
+        test_summary: dict[str, int] | None = None,
+        failed_tests: list[dict[str, Any]] | None = None,
+        passed_tests: list[dict[str, Any]] | None = None,
+        command: str | None = None,
+        dbt_command: str | None = None,
+        target: str | None = None,
+        selection_criteria: str | None = None,
+    ) -> None:
+        """
+        Initialize test execution error.
+
+        Args:
+            message: Human readable error message
+            test_summary: Summary statistics dict with counts
+            failed_tests: List of tests that failed/errored
+            passed_tests: List of tests that passed
+            command: The dbt command that was executed
+            dbt_command: Full dbt CLI command
+            target: the dbt target used
+            selection_criteria: Node selection criteria string
+        """
+        details = {
+            "test_summary": test_summary or {},
+            "failed_tests": failed_tests or [],
+            "passed_tests": passed_tests or [],
+            "metadata": {
+                "command": command,
+                "dbt_command": dbt_command,
+                "target": target,
+                "selection_criteria": selection_criteria,
+            },
+        }
+
+        super().__init__(
+            message=message,
+            http_status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            details=details,
         )
 
 

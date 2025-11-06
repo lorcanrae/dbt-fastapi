@@ -8,6 +8,7 @@ from dbt_fastapi.exceptions import (
     DbtFastApiError,
     DbtTargetError,
     DbtExecutionError,
+    DbtTestExecutionError,
     translate_dbt_exception,
     create_compilation_error,
 )
@@ -125,15 +126,6 @@ class DbtManager:
             app_exception = translate_dbt_exception(dbt_exception, context)
             raise app_exception
 
-    async def async_execute_dbt_command(self) -> dbtRunnerResult:
-        """
-        Placeholder for future async execution support.
-
-        Raises:
-            NotImplementedError: This method is not yet implemented
-        """
-        raise NotImplementedError("Async dbt execution is not yet implemented.")
-
     @classmethod
     def execute_unsafe_dbt_command(cls, cli_command: list[str]) -> dbtRunnerResult:
         """
@@ -173,18 +165,6 @@ class DbtManager:
             context = {"command": cli_command}
             app_exception = translate_dbt_exception(dbt_exception, context)
             raise app_exception
-
-    @classmethod
-    async def async_execute_unsafe_dbt_command(
-        cls, cli_command: list[str]
-    ) -> dbtRunnerResult:
-        """
-        Placeholder for future async execution support.
-
-        Raises:
-            NotImplementedError: This method is not yet implemented.
-        """
-        raise NotImplementedError("Async dbt execution is not yet implemented.")
 
     def get_nodes_from_result(self, result: dbtRunnerResult) -> list[DbtNode]:
         """
@@ -324,6 +304,75 @@ class DbtManager:
                         summary["errored"] += 1
 
         return summary
+
+    def validate_test_results_or_raise(
+        self,
+        nodes: list[DbtNode],
+        test_summary: dict[str, int],
+        has_test_failures: bool,
+        has_test_errors: bool,
+        pass_on_test_failures: bool,
+    ) -> None:
+        """
+        Validate test results and raise DbtTestExectutionError if tests failed,
+        copying behaviour from the dbt CLI.
+
+        This method checks if any tests failed or errored, and if pass_on_test_failures
+        is False, raises a DbtTestExecutionError with detailed failure information.
+
+        Args:
+            nodes: List of processed nodes with test results
+            test_summary: Test summary statistics dict
+            has_test_failures: Whether any tests failed
+            has_test_errors: Whether any tests errored
+            pass_on_test_failures: Whether to suppress exception on test failures
+
+        Raises:
+            DbtTestExecutionError: If tests failed and pass_on_test_failures is False
+        """
+        # Early return if we should pass on failures or no failures occured
+        if pass_on_test_failures or not (has_test_errors or has_test_failures):
+            return
+
+        # Extract failed and passed tests from nodes
+        failed_tests: list[dict[str, Any]] = []
+        passed_tests: list[dict[str, Any]] = []
+
+        for node in nodes:
+            if not node.test_result:
+                continue
+
+            test_info = {
+                "unique_id": node.test_result.unique_id,
+                "name": node.test_result.name,
+                "status": node.test_result.message,
+                "failures": node.test_result.failures,
+                "execution_time": node.test_result.execution_time,
+            }
+
+            if node.test_result.status.value in ["fail", "error"]:
+                failed_tests.append(test_info)
+            else:
+                test_info["failures"] = None
+                passed_tests.append(test_info)
+
+        # Build error message
+        error_parts = []
+        if has_test_failures:
+            error_parts.append(f"{test_summary['failed']} test(s) failed")
+        if has_test_errors:
+            error_parts.append(f"{test_summary['errored']} test(s) errored")
+
+        raise DbtTestExecutionError(
+            message=", ".join(error_parts),
+            test_summary=test_summary,
+            failed_tests=failed_tests,
+            passed_tests=passed_tests,
+            command=self.verb,
+            dbt_command=" ".join(self.dbt_cli_args),
+            target=self.target,
+            selection_criteria=self.get_selection_criteria_string(),
+        )
 
     # === Private Helpers ===
 
